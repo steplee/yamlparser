@@ -1,0 +1,1034 @@
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <cassert>
+#include <stdexcept>
+#include <memory>
+#include <algorithm>
+#include <cstring>
+
+#include <sstream>
+#include <iostream>
+#include <type_traits>
+#include <stack>
+
+#ifndef tpAssert
+#define tpAssert(cond, ...) assert((cond));
+#endif tpAssert
+
+//
+// A simple YAML-like recursive descent parser.
+// Did not read the spec at all while writing this, so don't expect it to recognize valid YAML
+//
+//      o You access children nodes with the `get` function, which has two overloads:
+//          - Only use the `get(int)` key on list nodes.
+//          - Only use the `get(const char*)` key on dict nodes.
+//          - Never use `get` on a scalar node.
+//      o You get unwrapped data out by using the `as` template function. It has three usages:
+//          - For scalar nodes, only use `as<T>()` with T a fundamental type or a string.
+//          - For dict nodes, only use `as<T>()` with T an unordered map.
+//          - For list nodes, only use `as<T>()` with T a vector.
+//
+// WARNING: The error printing thing is busted.
+// NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general, prefer using strings with quotes.
+//
+// NOTE: Lots of inefficiencies such as:
+//       copying string keys rather than using `string_view`s into the document string.
+//       extraneous copying of nodes (the UPtrs result in lots of short lived objects).
+//
+
+namespace syaml {
+
+	// https://stackoverflow.com/questions/12042824/how-to-write-a-type-trait-is-container-or-is-vector
+	template <typename T, typename _ = void>
+	struct is_vector { static constexpr bool value = false; };
+	template <typename T>
+	struct is_vector< T,
+					typename std::enable_if<
+						std::is_same<T,
+								std::vector< typename T::value_type,
+											 typename T::allocator_type >
+								>::value
+					>::type
+					>
+	{ static const bool value = true; };
+
+	template <typename T, typename _ = void>
+	struct is_map { static constexpr bool value = false; };
+	template <typename T>
+	struct is_map< T,
+					typename std::enable_if<
+						std::is_same<T,
+								std::unordered_map< typename T::value_type,
+											        typename T::mapped_type >
+								>::value
+					>::type
+					>
+	{ static const bool value = true; };
+
+	// Non vector/map
+	template <class T>
+	using is_scalar    = std::negation<std::disjunction<is_vector<T>, is_map<T>>>;
+
+
+	struct SourceRange {
+		uint32_t start;
+		uint32_t end;
+	};
+
+	struct Document {
+		std::string src;
+
+		inline Document(const std::string& s) : src(s) {}
+
+		inline const std::string getRangeString(const SourceRange& rng) const {
+			assert(rng.end >= rng.start);
+			std::string snippet = src.substr(rng.start, rng.end - rng.start);
+			return snippet;
+		}
+		inline const std::stringstream getRangeStream(const SourceRange& rng) const {
+			std::string snippet = getRangeString(rng);
+			return std::stringstream(std::move(snippet));
+		}
+
+		inline std::string findLineAround(int i, int o) const {
+			// if (i < 0 or i >= src.length()) return "~";
+			if (i < 0 or i >= src.length()) return "";
+			int s = i;
+			int e = i+1;
+			while (s>=0 and src[s]!='\n') s--;
+			while (e<src.length() and src[e]!='\n') e++;
+			// if (o == 0) return std::string_view{src}.substr(s,e);
+			if (o == 0) return src.substr(s+1,e-s-1);
+			if (o >  0) return findLineAround(e+1, o-1);
+			if (o <  0) return findLineAround(s-1, o+1);
+
+		}
+		inline std::vector<std::pair<uint32_t,std::string>> linesAround(int i, int N=3) const {
+			std::vector<std::pair<uint32_t,std::string>> out(N);
+			for (int o=0; o<N; o++) {
+				uint32_t nl=0;
+				for (int j=0; j<i; j++) nl += src[j] == '\n';
+				out[o] = {nl+o-1,findLineAround(i, o-1)};
+			}
+			return out;
+		}
+		inline uint32_t distanceFromStartOfLine(int i) const {
+			uint32_t d = 0;
+			while(i > 0 and src[i] != '\n') { i--; d++; }
+			return d;
+		}
+	};
+
+	struct Tok {
+		enum Lexeme {
+			eWhitespace,
+			eNL,
+			eColon,
+			eComma,
+			eDash,
+			eIdent,
+			eNumber,
+			eString,
+			eOpenBrace,
+			eCloseBrace
+		} lexeme;
+		uint32_t n=0;
+		uint32_t start;
+		uint32_t end;
+
+		inline bool operator==(const Lexeme& l) const { return lexeme == l; }
+		inline bool operator!=(const Lexeme& l) const { return lexeme != l; }
+
+		inline void print(std::ostream& os, const Document& doc) {
+			if (lexeme == eNL) { os << "\n"; return; }
+			os << "(";
+			switch (lexeme) {
+				case eWhitespace: os << "ws, n=" << n; break;
+				case eNL: os << "nl, n=" << n; break;
+				case eColon: os << "colon"; break;
+				case eComma: os << "comma"; break;
+				case eDash: os << "dash"; break;
+				case eIdent: os << "ident"; break;
+				case eNumber: os << "num"; break;
+				case eString: os << "str"; break;
+				case eOpenBrace: os << "openBrace"; break;
+				case eCloseBrace: os << "closeBrace"; break;
+			}
+			if (lexeme != eNL)
+				os << ", '" << std::string_view{doc.src}.substr(start, end-start);
+			os << "')";
+		}
+	};
+
+	struct Parser;
+
+	using ConstTok = const Tok;
+	struct TokenizedDoc {
+		Document* doc;
+		std::vector<Tok> tokens;
+		inline ConstTok& operator[](uint32_t i) const { return tokens[i]; }
+		inline uint32_t size() const { return tokens.size(); }
+
+		inline const std::string getTokenString(ConstTok& t) const {
+			return doc->getRangeString({t.start, t.end});
+		}
+		inline const std::stringstream getTokenStream(ConstTok& t) const {
+			return doc->getRangeStream({t.start, t.end});
+		}
+		inline const std::string getTokenRangeString(const SourceRange& ts) const {
+			const auto& l = tokens[ts.start  ];
+			// const auto& r = tokens[ts.end    ];
+			const auto& r = tokens[ts.end  -1];
+			return doc->getRangeString({l.start, r.end});
+		}
+		inline const std::stringstream getTokenRangeStream(const SourceRange& ts) const {
+			const auto& l = tokens[ts.start];
+			// const auto& r = tokens[ts.end  ];
+			const auto& r = tokens[ts.end-1];
+			return doc->getRangeStream({l.start, r.end});
+		}
+	};
+
+	static inline bool is_alpha(char c) {
+		return (c>='a' and c<='z') or (c>='A' and c<='Z');
+	}
+	static inline bool is_numer(char c) {
+		return c>='0' and c<='9';
+	}
+
+	inline TokenizedDoc lex(Document* doc) {
+		TokenizedDoc out;
+		out.doc = doc;
+
+		auto& ts = out.tokens;
+		const auto& s = doc->src;
+		uint32_t N = (uint32_t) s.length();
+		assert(N>0);
+		uint32_t i = 0;
+		while (i < N) {
+			uint32_t i0 = i;
+			uint32_t n=0;
+			
+			// Comment
+			if (s[i] == '#') {
+				while (i<N and s[i] != '\n') i++;
+				continue;
+			}
+
+			// Whitespace
+			else if (s[i] == ' ' or s[i] == '\t') {
+				while (i<N and (s[i] == ' ' or s[i] == '\t')) { n++; i++; }
+				ts.push_back(Tok{Tok::eWhitespace,n,i0,i});
+			}
+
+			// String
+			else if (s[i] == '\"') {
+				i++;
+				while (i<N and s[i] != '"') { n++; i++; }
+				assert(s[i] == '"');
+				// ts.push_back(Tok{Tok::eString,n,i0+1,i++});
+				ts.push_back(Tok{Tok::eString,n,i0,++i});
+			}
+
+			// Ident
+			else if (is_alpha(s[i])) {
+				while (i<N and (is_alpha(s[i]) or is_numer(s[i]))) { i++; }
+				ts.push_back(Tok{Tok::eIdent,n,i0,i});
+			}
+
+			// Single dash
+			else if (s[i] == '-' and (i>=s.length() or s[i+1] == ' ')) {
+				ts.push_back(Tok{Tok::eDash,n,i0,++i});
+			}
+
+			// Number
+			else if (s[i] == '.' or s[i] == '-' or is_numer(s[i])) {
+				if (s[i] == '-') i++;
+				int n_e = 0;
+				int n_d = 0;
+				while (i<N) {
+					if (s[i] == 'e') {
+						if (n_e) assert(false && "multiple 'e' in float.");
+						n_e++;
+						i++;
+						// allow like '1e-2'
+						if (i<N and s[i] == '-') {
+							i++;
+						}
+					} else if (s[i] == '.') {
+						if (n_d) assert(false && "multiple '.' in float.");
+						n_d++;
+						i++;
+					} else if (is_numer(s[i])) {
+						i++;
+					} else if (s[i] == '#' or s[i] == ',' or s[i] == ']' or s[i] == ' ' or s[i] == '\n' or s[i] == '\t') {
+						break;
+					} else {
+						throw std::runtime_error("error while lexing a number, unexpected char: " + std::string{s[i]});
+					}
+				}
+				ts.push_back(Tok{Tok::eNumber,n,i0,i});
+			}
+
+			// etc.
+			else if (s[i] == '\n') ts.push_back(Tok{Tok::eNL,n,i0,++i});
+			else if (s[i] == ',') ts.push_back(Tok{Tok::eComma,n,i0,++i});
+			else if (s[i] == ':') ts.push_back(Tok{Tok::eColon,n,i0,++i});
+			else if (s[i] == '[') ts.push_back(Tok{Tok::eOpenBrace,n,i0,++i});
+			else if (s[i] == ']') ts.push_back(Tok{Tok::eCloseBrace,n,i0,++i});
+			else { assert(false); }
+
+		}
+		return out;
+	}
+
+
+
+
+
+
+	struct ListNode;
+	struct DictNode;
+	struct ScalarNode;
+	struct Node {
+		SourceRange tokRange;
+		Node* parent={};
+		// Document* doc={};
+		TokenizedDoc* tdoc={};
+
+		// inline Node() : parent(nullptr), doc(nullptr), range(SourceRange{0,0}) {}
+		inline Node(TokenizedDoc* tdoc, SourceRange tokRange) : parent(nullptr), tdoc(tdoc), tokRange(tokRange) {}
+		// inline Node(Node* p, const SourceRange& rng) : parent(p), doc(p ? p->doc : nullptr), range(rng) {}
+
+		inline virtual ~Node() {};
+
+		// std::vector<Node> children;
+
+		inline virtual Node* get(const char* k) const {tpAssert(false); return nullptr;}
+		inline virtual Node* get(uint32_t i) const {tpAssert(false); return nullptr;}
+
+		template <class T> std::enable_if_t<is_vector<T>::value, T> as() const;
+		template <class T> std::enable_if_t<is_map   <T>::value, T> as() const;
+		template <class T> std::enable_if_t<is_scalar<T>::value, T> as() const;
+
+
+		DictNode* asDict();
+		ListNode* asList();
+		ScalarNode* asScalar();
+
+	};
+
+
+	struct ListNode : public Node {
+
+		// private:
+			std::vector<Node*> children;
+			bool fromDash = false;
+
+
+		public:
+			using Node::Node;
+			virtual ~ListNode();
+
+			inline virtual Node* get(const char* k) const override {
+				tpAssert(false, "ListNode.get(str) called.");
+				return 0;
+			}
+			inline virtual Node* get(uint32_t k) const override {
+				tpAssert(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
+				return children[k];
+			}
+
+			template <class V>
+			inline std::vector<V> toVector() const {
+				std::vector<V> out;
+				for (auto& child : children) {
+					out.push_back(child->as<V>());
+				}
+				return out;
+			}
+			inline bool isFromDash() const { return fromDash; }
+
+	};
+
+	struct DictNode : public Node {
+
+		// private:
+			// std::unordered_map<std::string, Node*> children;
+			std::vector<std::pair<std::string, Node*>> children;
+
+
+		public:
+			using Node::Node;
+			virtual ~DictNode();
+
+			int indent=0;
+
+			inline virtual Node* get(const char* k) const override {
+				decltype(children.begin()) it;
+				if constexpr (is_vector<decltype(children)>::value) {
+					it = std::find_if(children.begin(), children.end(), [k](const auto& kv){return 0==strcmp(kv.first.c_str(), k);});
+				} else {
+					// it = children.find(std::string{k});
+					assert(false);
+				}
+				tpAssert(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)", k, children.size());
+				return it->second;
+			}
+			inline virtual Node* get(uint32_t k) const override {
+				tpAssert(false, "DictNode.get(int) called.");
+				return 0;
+			}
+
+			template <class V>
+			inline std::unordered_map<std::string,V> toMap() const {
+				std::unordered_map<std::string,V> out;
+				for (auto& kv : children) {
+					out[kv.first] = kv.second->as<V>();
+				}
+				return out;
+			}
+
+	};
+
+	struct ScalarNode : public Node {
+
+		private:
+
+		public:
+			using Node::Node;
+			virtual ~ScalarNode();
+
+			inline virtual Node* get(const char* k) const override {
+				tpAssert(false, "ScalarNode.get(str) called.");
+				return 0;
+			}
+			inline virtual Node* get(uint32_t k) const override {
+				tpAssert(false, "ScalarNode.get(int) called.");
+				return 0;
+			}
+
+			template <class V>
+			inline V toScalar() const {
+
+				if constexpr(std::is_same<V, std::string>::value) {
+					// return tdoc->getRangeString(range);
+					return tdoc->getTokenRangeString(tokRange);
+				}
+
+				if constexpr(
+						std::is_fundamental<V>::value
+						// std::is_same<V, int64_t>::value or
+						// std::is_same<V, double>::value or
+						// std::is_same<V, bool>::value
+						) {
+					V o;
+					// auto ss = tdoc->getRangeStream(range);
+					auto ss = tdoc->getTokenRangeStream(tokRange);
+					ss >> o;
+					assert(ss.eof() && "failed or partial parse");
+					// std::cout << " - parse this str :: " << ss.str() << " => " << o << "\n";
+					return o;
+				}
+
+				throw std::runtime_error("toScalar<V>() called with invalid type V for ScalarNode");
+			}
+	};
+
+
+	struct Parser {
+		public:
+			TokenizedDoc* tdoc;
+			// std::stack<Node*> stack;
+			DictNode* root=nullptr;
+
+			void parse(TokenizedDoc* doc);
+
+			~Parser();
+
+		// private:
+
+			Tok lex();
+			void parseDict(DictNode* parent);
+
+			Node* tryDict();
+			Node* tryList();
+			Node* tryListFromDash();
+			Node* tryScalar();
+
+			uint32_t I = 0;
+			int parentIndent = 0;
+			// char peek() { return doc->src[I]; }
+			// char advance() { return doc->src[I++]; }
+			// inline bool atEnd() const { return I >= doc->src.length(); };
+			// inline Node* fail(int rollback) { I = rollback; return nullptr; }
+			
+			inline bool eof() { return I >= tdoc->size(); }
+			inline ConstTok& peek() { return (*tdoc)[I]; }
+			inline ConstTok& advance() { return (*tdoc)[I++]; }
+	};
+
+	struct ParserGuard {
+		uint32_t I0;
+		bool terminated = false;
+		Parser* parser;
+		inline ParserGuard(Parser* parser) : parser(parser) {
+			I0 = parser->I;
+		}
+		inline ~ParserGuard() {
+			if (!terminated)
+				throw std::runtime_error("unterminated ParserGuard");
+		}
+		inline void accept() {
+			terminated = true;
+		}
+		inline void reject() {
+			terminated = true;
+			parser->I = I0;
+		}
+		inline SourceRange currentRange() const {
+			return SourceRange{I0, parser->I};
+		}
+	};
+
+	inline Parser::~Parser() {
+		if (root) delete root;
+		root = 0;
+	}
+
+	inline void Parser::parse(TokenizedDoc* tdoc_) {
+		tdoc = tdoc_;
+
+		root = (DictNode*) tryDict();
+		assert(root != nullptr);
+	}
+
+	inline static void print_line_debug(Document* doc, uint32_t startPos) {
+				// auto doc = tdoc->doc;
+				auto lines = doc->linesAround(startPos);
+				int off = doc->distanceFromStartOfLine(startPos);
+				for (int i=0; i<lines.size(); i++) {
+					char lineNo[8];
+					sprintf(lineNo, "% 4d", lines[i].first);
+					std::cout << "\t" << lineNo << "| " << lines[i].second << "\n";
+					if (i == lines.size() / 2) {
+						std::cout << "\t       ";
+						for (int i=0; i<off; i++) std::cout << " ";
+						std::cout << "^\n";
+					}
+				}
+	}
+
+	Node* Parser::tryScalar() {
+		ParserGuard pg(this);
+
+		try {
+
+			Tok cur = peek();
+			while (!eof() and cur == Tok::eWhitespace) cur = advance();
+
+			if (eof()) {
+				throw std::runtime_error("tried scalar, but is eof");
+			}
+
+			cur = advance();
+
+			// if (cur == Tok::eString or cur == Tok::eNumber) {
+			if (cur == Tok::eString or cur == Tok::eNumber or cur == Tok::eIdent) {
+				ScalarNode* newNode = new ScalarNode(tdoc, pg.currentRange());
+				return pg.accept(), newNode;
+			}
+
+		} catch(std::runtime_error& e) {
+			std::cout << " - In tryScalar(), starting here:\n";
+			print_line_debug(tdoc->doc, pg.I0);
+			pg.reject();
+			throw e;
+		}
+
+		return pg.reject(), nullptr;
+
+	}
+
+	Node* Parser::tryList() {
+		ParserGuard pg(this);
+
+		using NodeUPtr = std::unique_ptr<Node>;
+		std::vector<NodeUPtr> cs;
+
+		try {
+
+			while (!eof() and peek() == Tok::eWhitespace) advance();
+
+			Tok open = advance();
+			if (open != Tok::eOpenBrace) return pg.reject(), nullptr;
+
+			if (eof()) {
+				throw std::runtime_error("inside list, should've parsed something, got eof");
+			}
+
+
+			while (!eof()) {
+				while (!eof() and peek() == Tok::eWhitespace or peek() == Tok::eNL) {
+					while (!eof() and peek() == Tok::eWhitespace) advance();
+					while (!eof() and peek() == Tok::eNL) advance();
+				}
+				Tok cur = peek();
+				if (eof()) {
+					throw std::runtime_error("inside list, should've parsed something, got eof");
+				}
+
+				if (cur == Tok::eCloseBrace) {
+					advance();
+					break;
+				}
+
+				Node* next = nullptr;
+				if (!next) next = tryList();
+				if (!next) next = tryScalar();
+
+				if (!next) {
+					std::stringstream ss;
+					cur = peek();
+					cur.print(ss,*tdoc->doc);
+					printf("inside list, should've parsed list or scalar, peek() is %s\n", ss.str().c_str());
+					throw std::runtime_error("inside list, should've parsed list or scalar");
+				}
+
+				cs.push_back(NodeUPtr{next});
+
+				Tok after = peek();
+				if (after == Tok::eCloseBrace) {
+					advance();
+					break;
+				} else if (after == Tok::eComma) {
+					advance();
+				} else {
+					throw std::runtime_error("inside list, should've parsed comma or ending ']'");
+				}
+			}
+
+		} catch(std::runtime_error& e) {
+			std::cout << " - In tryList(), starting here:\n";
+			print_line_debug(tdoc->doc, pg.I0);
+			pg.reject();
+			throw e;
+		}
+
+		ListNode* newNode = new ListNode(tdoc, pg.currentRange());
+
+		for (auto &c : cs) newNode->children.push_back(c.release());
+		printf("return list with nitems=%zu\n", cs.size());
+
+		return pg.accept(), newNode;
+	}
+
+	Node* Parser::tryListFromDash() {
+		ParserGuard pg(this);
+
+		using NodeUPtr = std::unique_ptr<Node>;
+		std::vector<NodeUPtr> cs;
+
+		try {
+
+			int indent = 0;
+			while (!eof() and peek() == Tok::eNL) {
+				indent = 0;
+				advance();
+				if (!eof() and peek() == Tok::eWhitespace) {
+					// indent = advance().n;
+					indent = peek().n;
+					printf("see indent %d\n", indent);
+				}
+			}
+			if (!eof() and peek() == Tok::eWhitespace) {
+				// indent = advance().n;
+				indent = peek().n;
+				printf("see indent %d\n", indent);
+			}
+
+			printf("start tryListFromDash at I=%d\n", I);
+
+			while (!eof()) {
+
+				uint32_t thisIndent = 0;
+				uint32_t savedI = I;
+				if (peek() == Tok::eWhitespace) {
+					thisIndent = advance().n;
+				}
+				while (!eof() and peek() == Tok::eNL) {
+					thisIndent = 0;
+					advance();
+					if (peek() == Tok::eWhitespace) {
+						thisIndent = advance().n;
+					}
+				}
+				if (eof()) break;
+
+				printf(" - next key '%s': this indent=%d, expected indent=%d\n", tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
+				if (thisIndent < indent) {
+					printf(" - exiting tryListFromDash because indent was %d < %d\n", thisIndent, indent);
+
+					// NOTE: This is really tricky: if we fail on this indent, we must **rewind back to newline**
+					// if (thisIndent) I -= 1;
+					I = savedI;
+
+					break;
+				}
+
+				if (thisIndent > indent) {
+					printf("inside list from dash, higher indent...\n");
+					I = savedI;
+					Node* next = nullptr;
+					if (!next) next = tryListFromDash();
+					if (!next) next = tryDict();
+
+					if (!next) {
+						throw std::runtime_error("inside dashList with indent > expected, should've parsed list or dict");
+					}
+					cs.push_back(NodeUPtr{next});
+					continue;
+				}
+
+				Tok open = advance();
+				if (open != Tok::eDash) {
+					std::stringstream ss;
+					open.print(ss,*tdoc->doc);
+					printf(" - exiting tryListFromDash, expected dash, got %s\n",ss.str().c_str());
+					return pg.reject(), nullptr;
+				}
+
+				Tok cur = peek();
+				while (!eof() and peek() == Tok::eWhitespace) cur = advance();
+				if (eof()) {
+					throw std::runtime_error("inside dashList, should've parsed something, got eof");
+				}
+
+				if (cur == Tok::eCloseBrace) {
+					advance();
+					break;
+				}
+
+				Node* next = nullptr;
+				if (!next) next = tryList();
+				if (!next) next = tryScalar();
+				// if (!next) next = tryDict(); // WARNING: This is not supported yet.
+
+				if (!next) {
+					throw std::runtime_error("inside dashList, should've parsed list or scalar");
+				}
+
+				cs.push_back(NodeUPtr{next});
+
+				// throw std::runtime_error("nothing parse in inner dict");
+			}
+
+		} catch(std::runtime_error& e) {
+			std::cout << " - In tryListFromDash(), starting here:\n";
+			print_line_debug(tdoc->doc, pg.I0);
+			pg.reject();
+			throw e;
+		}
+
+		ListNode* newNode = new ListNode(tdoc, pg.currentRange());
+		newNode->fromDash = true;
+
+		for (auto &c : cs) newNode->children.push_back(c.release());
+		printf("return list with nitems=%zu\n", cs.size());
+
+		return pg.accept(), newNode;
+	}
+
+
+	Node* Parser::tryDict() {
+		ParserGuard pg(this);
+
+		// int indent = parentIndent;
+		int indent = 0;
+		using NodeUPtr = std::unique_ptr<Node>;
+		std::vector<std::pair<std::string, NodeUPtr>> cs;
+
+		try {
+
+			while (!eof() and peek() == Tok::eNL) {
+				indent = 0;
+				advance();
+				if (!eof() and peek() == Tok::eWhitespace) {
+					// indent = advance().n;
+					indent = peek().n;
+					printf("see indent %d\n", indent);
+				}
+			}
+			if (!eof() and peek() == Tok::eWhitespace) {
+				// indent = advance().n;
+				indent = peek().n;
+				printf("see indent %d\n", indent);
+			}
+
+
+			printf("start tryDict at I=%d\n", I);
+
+			while (!eof()) {
+
+				uint32_t thisIndent = 0;
+				uint32_t savedI = I;
+				if (peek() == Tok::eWhitespace) {
+					thisIndent = advance().n;
+				}
+				while (!eof() and peek() == Tok::eNL) {
+					thisIndent = 0;
+					advance();
+					if (peek() == Tok::eWhitespace) {
+						thisIndent = advance().n;
+					}
+				}
+				printf(" - next key '%s': this indent=%d, expected indent=%d\n", tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
+				if (thisIndent < indent) {
+					printf(" - exiting tryDict because indent was %d < %d\n", thisIndent, indent);
+
+					// NOTE: This is really tricky: if we fail on this indent, we must **rewind back to newline**
+					// if (thisIndent) I -= 1;
+					I = savedI;
+
+					break;
+				}
+
+				Tok keyTok = advance();
+				if (eof() or keyTok != Tok::eIdent) {
+					printf(" - keyTok @ %d not ident. fail tryDict\n", I-1);
+					return pg.reject(), nullptr;
+				}
+				printf(" - keyTok @ %d = %s\n", I-1, tdoc->getTokenString(keyTok).c_str());
+
+				Tok colon = advance();
+				if (eof() or colon != Tok::eColon) {
+					printf(" - missing colon. fail tryDict\n");
+					return pg.reject(), nullptr;
+				}
+
+				while (!eof() and peek() == Tok::eWhitespace) {
+					advance();
+				}
+
+				if (eof()) {
+					throw std::runtime_error("nope");
+				}
+
+				Tok cur = peek();
+
+				// We MUST be starting a list
+				if (cur == Tok::eOpenBrace) {
+					// advance();
+					Node* innerList = tryList();
+					if (innerList) {
+						while (!eof() and peek() == Tok::eWhitespace) { advance(); }
+						while (!eof() and peek() == Tok::eNL) { advance(); }
+						cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{innerList}});
+					} else
+						throw std::runtime_error("looked like a list inside a map, but failed to parse the inner list");
+					continue;
+				}
+
+				// We MUST be starting a list or map
+				if (cur == Tok::eNL) {
+
+					// We MUST be starting a new list
+					ParserGuard lookahead_pg(this);
+					while (cur == Tok::eNL or cur == Tok::eWhitespace) {
+						advance();
+						cur = peek();
+					}
+
+					// We MUST be starting a new list
+					if (peek() == Tok::eDash) {
+						// Reject because tryListFromDash wants the whitespace to process itself.
+						// lookahead_pg.accept();
+						lookahead_pg.reject();
+
+						while (peek() == Tok::eWhitespace) advance();
+
+						Node* innerList = tryListFromDash();
+						if (innerList) {
+							cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{innerList}});
+						} else
+							throw std::runtime_error("looked like a list (from dash) inside a map, but failed to parse the inner list");
+						continue;
+					}
+
+					lookahead_pg.reject();
+					{
+						// We MUST be starting a new map
+						while (peek() == Tok::eNL) cur = advance();
+						Node* innerDict = tryDict();
+						if (innerDict) {
+							cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{innerDict}});
+						} else
+							throw std::runtime_error("looked like a map inside a map, but failed to parse the inner one");
+						continue;
+					}
+				}
+
+
+				// We MUST be starting a scalar
+				Node* innerScalar = tryScalar();
+				if (innerScalar) {
+						while (!eof() and peek() == Tok::eWhitespace) { advance(); }
+						while (!eof() and peek() == Tok::eNL) { advance(); }
+						cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{innerScalar}});
+						continue;
+				} else
+					throw std::runtime_error("looked like a scalar inside a map, but failed to parse the inner scalar");
+
+				throw std::runtime_error("nothing parse in inner dict");
+
+			}
+
+		} catch(std::runtime_error& e) {
+			std::cout << " - In tryDict(), starting here:\n";
+			print_line_debug(tdoc->doc, pg.I0);
+			pg.reject();
+			throw e;
+		}
+
+		if (cs.size()) {
+			DictNode* newNode = new DictNode(tdoc, pg.currentRange());
+			if constexpr (is_vector<decltype(newNode->children)>::value) {
+				for (auto& kv : cs) newNode->children.push_back({kv.first,kv.second.release()});
+			} else {
+				// for (auto& kv : cs) newNode->children[kv.first] = kv.second.release();
+				assert(false);
+			}
+			return pg.accept(), newNode;
+		} else return pg.reject(), nullptr;
+
+	}
+
+	// template <typename std::enable_if_t<is_vector<T>::value, T> >
+	template <class T>
+	inline std::enable_if_t<is_vector<T>::value, T> Node::as() const {
+		using TV = typename T::value_type;
+		const ListNode* asList = dynamic_cast<const ListNode*>(this);
+
+		tpAssert(asList != nullptr, "Node.as<vector> called on non-ListNode");
+		return asList->toVector<TV>();
+	}
+
+	template <class T>
+	inline std::enable_if_t<is_map<T>::value, T> Node::as() const {
+			using TV = typename T::value_type;
+			const DictNode* asDict = dynamic_cast<const DictNode*>(this);
+			tpAssert(asDict != nullptr, "Node.as<map> called on non-ListNode");
+
+			return asDict->toMap<TV>();
+	}
+
+	// template <typename std::enable_if_t<std::is_integral<T>::value, T> >
+	template <class T>
+	inline std::enable_if_t<is_scalar<T>::value, T> Node::as() const {
+		const ScalarNode* asScalar = dynamic_cast<const ScalarNode*>(this);
+		tpAssert(asScalar != nullptr, "Node.as<T> called on non-ScalarNode (with T not in {vector,map})");
+
+		return asScalar->toScalar<T>();
+	}
+
+	inline ListNode::~ListNode() {
+		for (auto c : children) delete c;
+		children.clear();
+	}
+	inline DictNode::~DictNode() {
+		for (auto kv : children) delete kv.second;
+		children.clear();
+	}
+	inline ScalarNode::~ScalarNode() {
+	}
+
+	inline DictNode* Node::asDict() { auto out = dynamic_cast<DictNode*>(this); if (!out) throw std::runtime_error("bad cast to DictNode"); return out; }
+	inline ListNode* Node::asList() { auto out = dynamic_cast<ListNode*>(this); if (!out) throw std::runtime_error("bad cast to ListNode"); return out; }
+	inline ScalarNode* Node::asScalar() { auto out = dynamic_cast<ScalarNode*>(this); if (!out) throw std::runtime_error("bad cast to ScalarNode"); return out; }
+
+	inline void serialize_(std::stringstream& ss, Node* node, int depth, bool& lastWasNl, bool& lastWasDash) {
+
+		auto indent = [&ss](int depth) { for (int i=0; i<depth*4; i++) ss << " "; };
+		auto newline = [&ss, &lastWasNl]() { if (!lastWasNl) { lastWasNl = true; ss << "\n"; } };
+		auto dash = [&ss, &lastWasDash]() { if (!lastWasDash) { lastWasDash = true; ss << "- "; } };
+
+		if (auto d = dynamic_cast<DictNode*>(node)) {
+			/*
+			for (auto kv : d->children) {
+				auto key = kv.first;
+				auto child = kv.second;
+				indent(depth);
+				ss << key << ":";
+				lastWasNl = false;
+				if (auto cd = dynamic_cast<DictNode*>(child)) {
+					newline();
+					serialize_(ss, cd, depth+1, lastWasNl);
+				} else {
+					ss << " ";
+					serialize_(ss, child, depth+1, lastWasNl);
+				}
+				newline();
+			}
+			*/
+
+			newline();
+			for (auto kv : d->children) {
+				auto key = kv.first;
+				auto child = kv.second;
+				indent(depth);
+				ss << key << ":";
+				lastWasDash = lastWasNl = false;
+				ss << " ";
+				serialize_(ss, child, depth+1, lastWasNl, lastWasDash);
+				newline();
+			}
+
+		} else if (auto l = dynamic_cast<ListNode*>(node)) {
+
+			if (!l->isFromDash()) {
+			// if (0) {
+				ss << "[";
+				lastWasDash = lastWasNl = false;
+				for (int i=0; i<l->children.size(); i++) {
+					serialize_(ss, l->children[i], 1+depth, lastWasNl, lastWasDash);
+					if (i<l->children.size()-1) ss << ", ";
+				}
+				ss << "]";
+				lastWasDash = lastWasNl = false;
+			} else {
+				newline();
+				for (auto child : l->children) {
+					ListNode* sub = dynamic_cast<ListNode*>(child);
+					if (sub == nullptr or !sub->isFromDash()) {
+						newline();
+						indent(depth);
+						dash();
+					}
+					lastWasNl = false;
+					serialize_(ss, child, depth+1, lastWasNl, lastWasDash);
+					lastWasDash = false;
+				}
+			}
+
+		} else if (auto s = dynamic_cast<ScalarNode*>(node)) {
+			ss << s->tdoc->getTokenRangeString(s->tokRange);
+			lastWasDash = lastWasNl = false;
+			// std::cout << " - tokrange is " << s->tokRange.start << " -> " << s->tokRange.end <<"\n";
+			// ss << s->tdoc->doc->getRangeString(SourceRange{node->tdoc->tokens[s->tokRange.start].start, node->tdoc->tokens[s->tokRange.start].end});
+		} else {
+			assert(false);
+		}
+
+	}
+
+	inline std::string serialize(Node* root) {
+		std::stringstream ss;
+		bool lastWasNl = true;
+		bool lastWasDash = false;
+		serialize_(ss, root, 0, lastWasNl, lastWasDash);
+		return ss.str();
+	}
+
+
+}
