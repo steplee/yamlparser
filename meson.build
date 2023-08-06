@@ -16,7 +16,7 @@ python3_path = python3.path()
 # gtest_dep = gtest.get_variable('gtest_dep')
 # gtest_main_dep = gtest.get_variable('gtest_main_dep')
 
-test_app = executable('tests', 'tests.cc',
+test_app = executable('tests', 'tests.cc', 'compile_implementation.cc',
   include_directories: ['.'],
   dependencies: [
       meson.get_compiler('cpp').find_library('libstdc++fs')

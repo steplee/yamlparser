@@ -1,7 +1,11 @@
+
+// #define SYAML_IMPL
+
 #include "yaml_parse.hpp"
 #include <filesystem>
 #include <fstream>
 #include <climits>
+
 
 using namespace syaml;
 

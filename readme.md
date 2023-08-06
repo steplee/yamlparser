@@ -11,6 +11,10 @@ There's some yaml test files randomly created by a python script. Currently the 
 I'm sure there's other features in the spec that are not handled too, but these are the top priority!
 
 ## Usage
+#### Building
+Like the STB libraries, you should include the `yaml_parser.hpp` header in **one** translation unit with `#define SYAML_IMPL` coming before the `#include`. This will include the function definitions. All other uses of the library must not have that macro defined.
+Splitting this way allows as much source code as possible to not be parsed by any dependent source files.
+Because this parser supports decoding directly to user defined types via templates, some functions must be included inline.
 ####
 After parsing, use the `get()` methods to navigate the document tree, using either a string argument for `DictNode`s or a integer argument for `ListNode`s. Then when at a target node, call `as<T>()` with the desired type (e.g. int, string, etc.)
 `as()` can also turn `DictNode`s into `unordered_map<string, V>`s, and `ListNode`s into `vector<V>`s.

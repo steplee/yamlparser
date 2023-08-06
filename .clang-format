@@ -1,0 +1,8 @@
+BasedOnStyle: mozilla
+ColumnLimit: 120
+AllowShortCaseLabelsOnASingleLine: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+  AlignCaseColons: false
