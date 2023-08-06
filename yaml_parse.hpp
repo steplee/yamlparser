@@ -625,7 +625,10 @@ namespace syaml {
 
     template <class T> T Node::as(Opt<T> def) const {
         auto g = getRoot()->guard();
-        if (dynamic_cast<const EmptyNode*>(this)) { return *def; }
+        if (dynamic_cast<const EmptyNode*>(this)) {
+			if (def) return *def;
+			else throw std::runtime_error("as<>() called on an EmptyNode with no default provided.");
+		}
         return as_<T>(def);
     }
 
