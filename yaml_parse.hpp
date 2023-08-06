@@ -459,6 +459,7 @@ namespace syaml {
         TokenizedDoc* tdoc = {};
         SourceRange tokRange;
 		std::string valueStr; // if not null: this node is from a set() call
+		bool valueStrIsString = false;
 
         DictNode* asDict();
         ListNode* asList();
@@ -551,7 +552,12 @@ namespace syaml {
 
             if constexpr (std::is_same<V, std::string>::value) {
                 // return tdoc->getRangeString(range);
-				if (valueStr.length()) return valueStr;
+				if (valueStr.length()) {
+					if (valueStrIsString)
+						return valueStr.substr(1,valueStr.length()-2);
+					else
+						return valueStr;
+				}
 				else return tdoc->getTokenRangeString(tokRange, true);
             }
 
@@ -694,8 +700,10 @@ namespace syaml {
 		if (oldIt != self->children.end()) self->children.erase(oldIt);
 
 		std::string valueStr;
+		bool valueStrIsString = false;
 		if constexpr (std::is_same<T, std::string>::value) {
 			valueStr = "\"" + v + "\"";
+			valueStrIsString = true;
 		} else {
 			std::stringstream ss;
 			ss << v;
@@ -703,6 +711,7 @@ namespace syaml {
 		}
 		auto newNode = new ScalarNode(valueStr);
 		newNode->parent = this;
+		newNode->valueStrIsString = valueStrIsString;
 
 		self->children.push_back({kk,newNode});
 	}

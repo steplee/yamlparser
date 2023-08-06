@@ -164,6 +164,7 @@ bool test_simple() {
 		root->get("a")->set<std::string>("newValue2", "str");
 		std::cout << " - a/newValue = " << root->get("a")->get("newValue")->as<int>() << "\n";
 		std::cout << " - a/newValue2 = " << root->get("a")->get("newValue2")->as<std::string>() << "\n";
+		check("newValue2 string", root->get("a")->get("newValue2")->as<std::string>() == std::string{"str"});
 
 		std::cout << "\n - Serialized parsed doc:\n" << serialize(root.get()) << "\n";
 
