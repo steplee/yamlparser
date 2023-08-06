@@ -69,12 +69,25 @@ void format_(std::ostream& os, T t, Ts... ts) {
 namespace syaml {
 
 	template <class T>
-	struct YamlDecode {
+	struct Decode {
 		static constexpr bool use_dict = false;
 		static constexpr bool use_list = false;
 		static constexpr bool use_scalar = false;
 		// static constexpr bool value = use_dict | use_list | use_scalar;
 		static constexpr bool value = false;
+	};
+
+	struct FromKey {
+		static constexpr bool value = true;
+		static constexpr bool use_dict = true;
+		static constexpr bool use_list = false;
+		static constexpr bool use_scalar = false;
+	};
+	struct FromList {
+		static constexpr bool value = true;
+		static constexpr bool use_dict = false;
+		static constexpr bool use_list = true;
+		static constexpr bool use_scalar = false;
 	};
 
 	template <class V>
@@ -115,10 +128,10 @@ namespace syaml {
 	template <typename T>
 	struct is_decodable< T,
 					typename std::enable_if<
-						YamlDecode<T>::value
+						Decode<T>::value
 						// WARNING: This is broken.
 						// FIXME: Why?
-						// YamlDecode<T>::use_dict | YamlDecode<T>::use_dict | YamlDecode<T>::use_scalar
+						// Decode<T>::use_dict | Decode<T>::use_dict | Decode<T>::use_scalar
 					>::type
 					>
 	{ static const bool value = true; };
@@ -397,6 +410,8 @@ namespace syaml {
 			friend class ScalarNode; // why is this neeeded.
 			friend class DictNode; // why is this neeeded.
 
+			bool isEmpty() const;
+
 		// protected:
 		public:
 
@@ -597,6 +612,7 @@ namespace syaml {
 				return 0;
 			}
 
+			bool Node::isEmpty() const { return dynamic_cast<const EmptyNode*>(this) != nullptr; }
 
 	// ---------------------------------------------------------------------------------------------------
 	//
@@ -1152,12 +1168,21 @@ namespace syaml {
 	template <class T>
 	inline std::enable_if_t<is_decodable<T>::value, T> Node::as_(Opt<T> def) const {
 
+		// TODO: Would be nicer to allow any combination, based on dynamic_cast(this) and on `use_dict` etc.
+
 		// if constexpr(Decode<T>::use_dict) {
-		if constexpr(YamlDecode<T>::use_dict) {
-			const DictNode* asDict = dynamic_cast<const DictNode*>(this);
+		if constexpr(Decode<T>::use_dict) {
+			auto asDict = dynamic_cast<const DictNode*>(this);
 			tpAssert(asDict != nullptr, "Node.as<map> called on non-ListNode");
-			return YamlDecode<T>::decode(asDict);
+			return Decode<T>::decode(asDict);
 		}
+
+		if constexpr(Decode<T>::use_list) {
+			auto asList = dynamic_cast<const ListNode*>(this);
+			tpAssert(asList != nullptr, "Node.as<map> called on non-ListNode");
+			return Decode<T>::decode(asList);
+		}
+
 		// const ScalarNode* asScalar = dynamic_cast<const ScalarNode*>(this);
 		// tpAssert(asScalar != nullptr, "Node.as<T> called on non-ScalarNode (with T not in {vector,map})");
 

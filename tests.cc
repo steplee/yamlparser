@@ -5,36 +5,26 @@
 
 using namespace syaml;
 
+// Example of user defined conversion.
+//
+struct MyType {
+	int x;
+	int y;
+};
+
 namespace syaml {
-
-	// Example of user defined conversion.
+	// Can use one of 'FromKey' / 'FromList' as base class.
 	//
-	struct MyType {
-		int x;
-		int y;
-	};
-
-	template <> struct YamlDecode<MyType> {
-		// Must set this:
-		static constexpr bool value = true;
-
-		// Exactly one of these must be true:
-		static constexpr bool use_dict = true;
-		static constexpr bool use_list = true;
-		static constexpr bool use_scalar = true;
-
+	template <> struct Decode<MyType> : FromKey {
 		static MyType decode(const DictNode* d) {
 			MyType out;
 			auto x = d->get_("x");
 			auto y = d->get_("y");
-			tpAssert(x);
-			tpAssert(y);
-			out.x = x->as_<int>({});
-			out.y = y->as_<int>({});
+			out.x = x->as_<int>(100); // Get the value in the 'x' node, or the default of 100
+			out.y = y->as_<int>(101); // Get the value in the 'x' node, or the default of 101
 			return out;
 		}
 	};
-
 }
 
 /*
