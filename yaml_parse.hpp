@@ -1,7 +1,6 @@
 #pragma once
 #include <algorithm>
 #include <cassert>
-#include <cstring>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -9,11 +8,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-// #include <format>
 
+#ifdef SYAML_IMPL
 #include <iostream>
+#endif
 #include <sstream>
-#include <stack>
 #include <type_traits>
 
 #define KNRM "\x1B[0m"
@@ -26,6 +25,19 @@
 #define KWHT "\x1B[37m"
 
 namespace syaml {
+
+	namespace {
+		int my_strcmp(const char* a, const char* b) {
+		while (1) {
+			if (*a == '\0' and *b == '\0') return 0;
+			if (*a == '\0' or  *b == '\0') return 1;
+			if (*a != *b) return 1;
+			a++;
+			b++;
+		}
+		return 1;
+	}
+	}
 
 #define simpleAssert(cond) assert((cond));
 
@@ -731,14 +743,14 @@ namespace syaml {
         decltype(children.begin()) it;
         if constexpr (is_vector<decltype(children)>::value) {
             it = std::find_if(children.begin(), children.end(),
-                              [k](const auto& kv) { return 0 == strcmp(kv.first.c_str(), k); });
+                              [k](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k); });
         } else {
             // it = children.find(std::string{k});
             assert(false);
         }
 
         if (it == children.end()) {
-            syamlWarn(it != children.end(), "DictNode.get(k) key not found (", k, " have ", children.size(),
+            syamlWarn(it != children.end(), "DictNode.get(k) key not found ('", k, "' have ", children.size(),
                       " children)");
             return getRoot()->getEmptySentinel();
         }
