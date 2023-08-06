@@ -6,6 +6,8 @@
 #include <memory>
 #include <algorithm>
 #include <cstring>
+#include <mutex>
+#include <optional>
 // #include <format>
 
 #include <sstream>
@@ -23,10 +25,22 @@
 #define KWHT "\x1B[37m"
 
 #ifndef tpAssert
+void format_(std::ostream& os) {
+}
+template <class T, class ...Ts>
+void format_(std::ostream& os, T t, Ts... ts) {
+	os << t;
+	format_(os, ts...);
+}
 // #define tpAssert(cond, ...) assert((cond));
 // #define tpAssert(cond, ...) if (! (cond)) throw std::runtime_error(std::format(__VA_ARGS__));
-#define tpAssert(cond, ...) if (! (cond)) throw std::runtime_error("");
-#endif tpAssert
+// #define tpAssert(cond, ...) if (! (cond)) throw std::runtime_error("");
+// #define tpAssert(cond, ...) if (! (cond)) throw std::runtime_error("");
+// #define tpAssert(cond, a, ...) if (! (cond)) {std::stringstream ss; format_(ss, a); throw std::runtime_error(ss.str()); }
+#define tpAssert(cond, ...) if (! (cond)) {std::stringstream ss; format_(ss, ## __VA_ARGS__ ); throw std::runtime_error(ss.str()); }
+#define tpWarn(cond, ...) if (! (cond)) {std::stringstream ss; format_(ss, ## __VA_ARGS__ ); std::cout << (ss.str()) << "\n"; }
+// #define tpAssert(cond, ...) if (! (cond)) {std::stringstream ss; format_(ss, __VA_ARGS__ ); throw std::runtime_error(ss.str()); }
+#endif
 
 //
 // A simple YAML-like recursive descent parser.
@@ -53,6 +67,21 @@
 //
 
 namespace syaml {
+
+	template <class T>
+	struct YamlDecode {
+		static constexpr bool use_dict = false;
+		static constexpr bool use_list = false;
+		static constexpr bool use_scalar = false;
+		// static constexpr bool value = use_dict | use_list | use_scalar;
+		static constexpr bool value = false;
+	};
+
+	template <class V>
+	using Opt = std::optional<V>;
+
+	template <class V>
+	using Map = std::unordered_map<std::string,V>;
 
 	// https://stackoverflow.com/questions/12042824/how-to-write-a-type-trait-is-container-or-is-vector
 	template <typename T, typename _ = void>
@@ -81,9 +110,24 @@ namespace syaml {
 					>
 	{ static const bool value = true; };
 
-	// Non vector/map
+	template <typename T, typename _ = void>
+	struct is_decodable { static constexpr bool value = false; };
+	template <typename T>
+	struct is_decodable< T,
+					typename std::enable_if<
+						YamlDecode<T>::value
+						// WARNING: This is broken.
+						// FIXME: Why?
+						// YamlDecode<T>::use_dict | YamlDecode<T>::use_dict | YamlDecode<T>::use_scalar
+					>::type
+					>
+	{ static const bool value = true; };
+
+	// Non vector/map/decodable
 	template <class T>
-	using is_scalar    = std::negation<std::disjunction<is_vector<T>, is_map<T>>>;
+	using is_scalar    = std::negation<std::disjunction<is_vector<T>, is_map<T>, is_decodable<T>>>;
+	// using is_scalar    = std::disjunction<std::is_same<T,std::string>, std::is_fundamental<T>>;
+
 
 
 	// ---------------------------------------------------------------------------------------------------
@@ -97,6 +141,7 @@ namespace syaml {
 		uint32_t end;
 	};
 
+	struct TokenizedDoc;
 	struct Document {
 		std::string src;
 
@@ -120,6 +165,7 @@ namespace syaml {
 			int e = i;
 			while (s>=0 and src[s]!='\n') s--;
 			while (e<src.length() and src[e]!='\n') e++;
+			// if (src[e]=='\n') e--;
 			// if (o == 0) return std::string_view{src}.substr(s,e);
 			if (o == 0) return src.substr(s+1,e-s-1);
 			if (o >  0) return findLineAround(e+1, o-1);
@@ -221,6 +267,7 @@ namespace syaml {
 		return c>='0' and c<='9';
 	}
 
+
 	inline TokenizedDoc lex(Document* doc) {
 		TokenizedDoc out;
 		out.doc = doc;
@@ -262,7 +309,7 @@ namespace syaml {
 			}
 
 			// Single dash
-			else if (s[i] == '-' and (i>=s.length() or s[i+1] == ' ')) {
+			else if (s[i] == '-' and (i>=s.length() or s[i+1] == ' ' or s[i+1] == '\n' or s[i+1] == '\t')) {
 				ts.push_back(Tok{Tok::eDash,n,i0,++i});
 			}
 
@@ -310,8 +357,6 @@ namespace syaml {
 	}
 
 
-
-
 	// ---------------------------------------------------------------------------------------------------
 	//
 	//   AST
@@ -323,44 +368,71 @@ namespace syaml {
 	struct DictNode;
 	struct ScalarNode;
 	struct EmptyNode;
+	struct RootNode;
+	struct Parser;
+	struct Serialization;
+	
 	struct Node {
-		SourceRange tokRange;
-		Node* parent={};
-		// Document* doc={};
-		TokenizedDoc* tdoc={};
 
-		// inline Node() : parent(nullptr), doc(nullptr), range(SourceRange{0,0}) {}
-		inline Node(TokenizedDoc* tdoc, SourceRange tokRange) : parent(nullptr), tdoc(tdoc), tokRange(tokRange) {}
-		// inline Node(Node* p, const SourceRange& rng) : parent(p), doc(p ? p->doc : nullptr), range(rng) {}
+		public:
+			inline Node(TokenizedDoc* tdoc, SourceRange tokRange) : parent(nullptr), tdoc(tdoc), tokRange(tokRange) {}
 
-		inline virtual ~Node() {};
+			inline virtual ~Node() {};
 
-		// std::vector<Node> children;
+			RootNode* getRoot() const;
 
-		inline virtual Node* get(const char* k) const {tpAssert(false); return nullptr;}
-		inline virtual Node* get(uint32_t i) const {tpAssert(false); return nullptr;}
+			template <class T>
+			inline Node* get(const T& k) const {
+				auto root = getRoot();
+				auto g = root->guard();
+				return this->get_(k);
+			}
 
-		template <class T> std::enable_if_t<is_vector<T>::value, T> as() const;
-		template <class T> std::enable_if_t<is_map   <T>::value, T> as() const;
-		template <class T> std::enable_if_t<is_scalar<T>::value, T> as() const;
+			template <class T> T as(Opt<T> def={}) const;
+
+			friend class Parser;
+			friend class Serialization;
+			friend class RootNode; // why is this neeeded.
+			friend class ListNode; // why is this neeeded.
+			friend class ScalarNode; // why is this neeeded.
+			friend class DictNode; // why is this neeeded.
+
+		// protected:
+		public:
 
 
-		DictNode* asDict();
-		ListNode* asList();
-		ScalarNode* asScalar();
-		EmptyNode* asEmpty();
+
+			// template <class T, class TV=typename T::value_type> std::enable_if_t<is_vector<TV>::value, T>    as_(Opt<std::vector<T>> def) const;
+			template <class T> std::enable_if_t<is_vector<T>::value, T>    as_(Opt<T> def) const;
+			// template <class T, class TV> std::enable_if_t<is_map   <TV>::value, T>    as_(Opt<Map<T>> def) const;
+			template <class T> std::enable_if_t<is_map   <T>::value, T>    as_(Opt<T> def) const;
+			template <class T> std::enable_if_t<is_scalar<T>::value, T>    as_(Opt<T> def) const;
+			template <class T> std::enable_if_t<is_decodable<T>::value, T> as_(Opt<T> def) const;
+
+			inline virtual Node* get_(const char* k) const {tpAssert(false); return nullptr;}
+			inline virtual Node* get_(uint32_t i) const {tpAssert(false); return nullptr;}
+
+			SourceRange tokRange;
+			Node* parent={};
+			TokenizedDoc* tdoc={};
+
+			DictNode* asDict();
+			ListNode* asList();
+			ScalarNode* asScalar();
+			EmptyNode* asEmpty();
 
 	};
+
 
 
 	struct EmptyNode : public Node {
 			using Node::Node;
 			inline virtual ~EmptyNode() {}
 
-			inline virtual Node* get(const char* k) const override {
+			inline virtual Node* get_(const char* k) const override {
 				tpAssert(false, "EmptyNode.get(str) called.");
 			}
-			inline virtual Node* get(uint32_t k) const override {
+			inline virtual Node* get_(uint32_t k) const override {
 				tpAssert(false, "EmptyNode.get(int)");
 			}
 	};
@@ -375,20 +447,15 @@ namespace syaml {
 			using Node::Node;
 			virtual ~ListNode();
 
-			inline virtual Node* get(const char* k) const override {
-				tpAssert(false, "ListNode.get(str) called.");
-				return 0;
-			}
-			inline virtual Node* get(uint32_t k) const override {
-				tpAssert(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
-				return children[k];
-			}
+			inline virtual Node* get_(const char* k) const override;
+			inline virtual Node* get_(uint32_t k) const override;
 
 			template <class V>
 			inline std::vector<V> toVector() const {
 				std::vector<V> out;
 				for (auto& child : children) {
-					out.push_back(child->as<V>());
+					// out.push_back(child->as_<V>());
+					out.push_back(child->as_<V>({}));
 				}
 				return out;
 			}
@@ -409,30 +476,46 @@ namespace syaml {
 
 			int indent=0;
 
-			inline virtual Node* get(const char* k) const override {
-				decltype(children.begin()) it;
-				if constexpr (is_vector<decltype(children)>::value) {
-					it = std::find_if(children.begin(), children.end(), [k](const auto& kv){return 0==strcmp(kv.first.c_str(), k);});
-				} else {
-					// it = children.find(std::string{k});
-					assert(false);
-				}
-				tpAssert(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)", k, children.size());
-				return it->second;
-			}
-			inline virtual Node* get(uint32_t k) const override {
-				tpAssert(false, "DictNode.get(int) called.");
-				return 0;
-			}
+			inline virtual Node* get_(const char* k) const override;
+			inline virtual Node* get_(uint32_t k) const override;
 
 			template <class V>
-			inline std::unordered_map<std::string,V> toMap() const {
-				std::unordered_map<std::string,V> out;
+			inline Map<V> toMap() const {
+				Map<V> out;
 				for (auto& kv : children) {
-					out[kv.first] = kv.second->as<V>();
+					out[kv.first] = kv.second->as_<V>({});
 				}
 				return out;
 			}
+
+	};
+
+	struct RootNode : public DictNode {
+		std::mutex mtx;
+
+		// Only allow a move constructor.
+		// We don't want to do a deep copy, so we want to take ownership of o's children
+		inline RootNode(DictNode&& o)
+			: DictNode(o.tdoc, o.tokRange)
+		{
+			children = std::move(o.children);
+			for (auto kv: children) kv.second->parent = this; // dont forget this.
+			parent = o.parent;
+			sentinel = new EmptyNode(tdoc, {0,0});
+			sentinel->parent = this;
+		}
+
+		inline virtual ~RootNode() {
+			delete sentinel;
+		}
+
+		inline EmptyNode* getEmptySentinel() {
+			return sentinel;
+		}
+
+		inline std::unique_lock<std::mutex> guard() { return std::unique_lock<std::mutex>(mtx); }
+
+		EmptyNode* sentinel;
 
 	};
 
@@ -444,11 +527,11 @@ namespace syaml {
 			using Node::Node;
 			virtual ~ScalarNode();
 
-			inline virtual Node* get(const char* k) const override {
+			inline virtual Node* get_(const char* k) const override {
 				tpAssert(false, "ScalarNode.get(str) called.");
 				return 0;
 			}
-			inline virtual Node* get(uint32_t k) const override {
+			inline virtual Node* get_(uint32_t k) const override {
 				tpAssert(false, "ScalarNode.get(int) called.");
 				return 0;
 			}
@@ -477,6 +560,42 @@ namespace syaml {
 			}
 	};
 
+			inline Node* ListNode::get_(const char* k) const {
+				tpAssert(false, "ListNode.get(str) called.");
+				return 0;
+			}
+			inline Node* ListNode::get_(uint32_t k) const {
+				// tpAssert(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
+				// tpWarn(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
+				if (k >= 0 and k < children.size()) {
+					return children[k];
+				} else {
+					tpWarn(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
+					return getRoot()->getEmptySentinel();
+				}
+			}
+
+			inline Node* DictNode::get_(const char* k) const {
+				decltype(children.begin()) it;
+				if constexpr (is_vector<decltype(children)>::value) {
+					it = std::find_if(children.begin(), children.end(), [k](const auto& kv){return 0==strcmp(kv.first.c_str(), k);});
+				} else {
+					// it = children.find(std::string{k});
+					assert(false);
+				}
+
+				if (it == children.end()) {
+					tpWarn(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)", k, children.size());
+					return getRoot()->getEmptySentinel();
+				}
+				// tpAssert(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)", k, children.size());
+
+				return it->second;
+			}
+			inline Node* DictNode::get_(uint32_t k) const {
+				tpAssert(false, "DictNode.get(int) called.");
+				return 0;
+			}
 
 
 	// ---------------------------------------------------------------------------------------------------
@@ -489,10 +608,8 @@ namespace syaml {
 	struct Parser {
 		public:
 			TokenizedDoc* tdoc;
-			// std::stack<Node*> stack;
-			DictNode* root=nullptr;
 
-			void parse(TokenizedDoc* doc);
+			RootNode* parse(TokenizedDoc* doc);
 
 			~Parser();
 
@@ -540,15 +657,18 @@ namespace syaml {
 	};
 
 	inline Parser::~Parser() {
-		if (root) delete root;
-		root = 0;
 	}
 
-	inline void Parser::parse(TokenizedDoc* tdoc_) {
+	inline RootNode* Parser::parse(TokenizedDoc* tdoc_) {
 		tdoc = tdoc_;
 
-		root = (DictNode*) tryDict();
-		tpAssert(root != nullptr);
+		auto rootAsDict = (DictNode*) tryDict();
+		tpAssert(rootAsDict != nullptr);
+
+		RootNode* root = new RootNode(std::move(*rootAsDict));
+		delete rootAsDict;
+
+		return root;
 	}
 
 	inline static void print_line_debug(TokenizedDoc* tdoc, uint32_t startPosTok) {
@@ -670,6 +790,7 @@ namespace syaml {
 		ListNode* newNode = new ListNode(tdoc, pg.currentRange());
 
 		for (auto &c : cs) newNode->children.push_back(c.release());
+		for (auto &c : newNode->children) c->parent = newNode;
 		printf("return list with nitems=%zu\n", cs.size());
 
 		return pg.accept(), newNode;
@@ -717,7 +838,7 @@ namespace syaml {
 				}
 				if (eof()) break;
 
-				printf(" - next key '%s': this indent=%d, expected indent=%d\n", tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
+				printf(" - peek() '%s': this indent=%d, expected indent=%d\n", tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
 				if (thisIndent < indent) {
 					printf(" - exiting tryListFromDash because indent was %d < %d\n", thisIndent, indent);
 
@@ -732,7 +853,7 @@ namespace syaml {
 					printf("inside list from dash, higher indent...\n");
 					I = savedI;
 					Node* next = nullptr;
-					if (!next) next = tryListFromDash();
+					if (!next) next = tryListFromDash(); // FIXME: Is this correct?
 					if (!next) next = tryDict();
 
 					if (!next) {
@@ -763,6 +884,7 @@ namespace syaml {
 
 				Node* next = nullptr;
 				if (!next) next = tryList();
+				if (!next) next = tryListFromDash();
 				if (!next) next = tryScalar();
 				// if (!next) next = tryDict(); // WARNING: This is not supported yet.
 
@@ -786,6 +908,7 @@ namespace syaml {
 		newNode->fromDash = true;
 
 		for (auto &c : cs) newNode->children.push_back(c.release());
+		for (auto &c : newNode->children) c->parent = newNode;
 		printf("return list with nitems=%zu\n", cs.size());
 
 		return pg.accept(), newNode;
@@ -980,6 +1103,7 @@ namespace syaml {
 				// for (auto& kv : cs) newNode->children[kv.first] = kv.second.release();
 				tpAssert(false);
 			}
+			for (auto& kv : newNode->children) kv.second->parent = newNode;
 			return pg.accept(), newNode;
 		} else return pg.reject(), nullptr;
 
@@ -994,9 +1118,11 @@ namespace syaml {
 	//
 	// ---------------------------------------------------------------------------------------------------
 
+
 	// template <typename std::enable_if_t<is_vector<T>::value, T> >
 	template <class T>
-	inline std::enable_if_t<is_vector<T>::value, T> Node::as() const {
+	// inline std::enable_if_t<is_vector<TV>::value, T> Node::as_(Opt<std::vector<T>> def) const {
+	inline std::enable_if_t<is_vector<T>::value, T> Node::as_(Opt<T> def) const {
 		using TV = typename T::value_type;
 		const ListNode* asList = dynamic_cast<const ListNode*>(this);
 
@@ -1005,7 +1131,8 @@ namespace syaml {
 	}
 
 	template <class T>
-	inline std::enable_if_t<is_map<T>::value, T> Node::as() const {
+	// inline std::enable_if_t<is_map<TV>::value, T> Node::as_(Opt<Map<T>> def) const {
+	inline std::enable_if_t<is_map<T>::value, T> Node::as_(Opt<T> def) const {
 			using TV = typename T::value_type;
 			const DictNode* asDict = dynamic_cast<const DictNode*>(this);
 			tpAssert(asDict != nullptr, "Node.as<map> called on non-ListNode");
@@ -1015,11 +1142,34 @@ namespace syaml {
 
 	// template <typename std::enable_if_t<std::is_integral<T>::value, T> >
 	template <class T>
-	inline std::enable_if_t<is_scalar<T>::value, T> Node::as() const {
+	inline std::enable_if_t<is_scalar<T>::value, T> Node::as_(Opt<T> def) const {
 		const ScalarNode* asScalar = dynamic_cast<const ScalarNode*>(this);
 		tpAssert(asScalar != nullptr, "Node.as<T> called on non-ScalarNode (with T not in {vector,map})");
 
 		return asScalar->toScalar<T>();
+	}
+
+	template <class T>
+	inline std::enable_if_t<is_decodable<T>::value, T> Node::as_(Opt<T> def) const {
+
+		// if constexpr(Decode<T>::use_dict) {
+		if constexpr(YamlDecode<T>::use_dict) {
+			const DictNode* asDict = dynamic_cast<const DictNode*>(this);
+			tpAssert(asDict != nullptr, "Node.as<map> called on non-ListNode");
+			return YamlDecode<T>::decode(asDict);
+		}
+		// const ScalarNode* asScalar = dynamic_cast<const ScalarNode*>(this);
+		// tpAssert(asScalar != nullptr, "Node.as<T> called on non-ScalarNode (with T not in {vector,map})");
+
+		// return asScalar->toScalar<T>();
+	}
+
+	template <class T> T Node::as(Opt<T> def) const {
+		auto g = getRoot()->guard();
+		if (dynamic_cast<const EmptyNode*>(this)) {
+			return *def;
+		}
+		return as_<T>(def);
 	}
 
 	inline ListNode::~ListNode() {
@@ -1037,13 +1187,34 @@ namespace syaml {
 	inline ListNode* Node::asList() { auto out = dynamic_cast<ListNode*>(this); if (!out) throw std::runtime_error("bad cast to ListNode"); return out; }
 	inline ScalarNode* Node::asScalar() { auto out = dynamic_cast<ScalarNode*>(this); if (!out) throw std::runtime_error("bad cast to ScalarNode"); return out; }
 
-	inline void serialize_(std::stringstream& ss, Node* node, int depth, bool& lastWasNl, bool& lastWasDash) {
+	inline RootNode* Node::getRoot() const {
+		Node* node = const_cast<Node*>(this);
+		while (node->parent) node = node->parent;
+		RootNode* root = dynamic_cast<RootNode*>(node);
+		tpAssert(root != nullptr, "getRoot() failed");
+		return root;
+	}
 
-		auto indent = [&ss](int depth) { for (int i=0; i<depth*4; i++) ss << " "; };
-		auto newline = [&ss, &lastWasNl]() { if (!lastWasNl) { lastWasNl = true; ss << "\n"; } };
-		auto dash = [&ss, &lastWasDash]() { if (!lastWasDash) { lastWasDash = true; ss << "- "; } };
+	struct Serialization {
+		private:
+			std::stringstream ss;
+			bool lastWasNl = true;
+			bool lastWasDash = false;
+		public:
+			void serialize_(Node* node, int depth);
+			std::string serialize(Node* node);
+	};
 
-		if (auto d = dynamic_cast<DictNode*>(node)) {
+	// inline void serialize_(std::stringstream& ss, Node* node, int depth, bool& lastWasNl, bool& lastWasDash) {
+	inline void Serialization::serialize_(Node* node, int depth) {
+
+		auto indent = [this](int depth) { for (int i=0; i<depth*4; i++) ss << " "; };
+		auto newline = [this]() { if (!lastWasNl) { lastWasNl = true; ss << "\n"; } };
+		auto dash = [this]() { if (!lastWasDash) { lastWasDash = true; ss << "- "; } };
+
+		auto d = dynamic_cast<DictNode*>(node);
+		if (d == nullptr) d = dynamic_cast<RootNode*>(node);
+		if (d) {
 			newline();
 			for (auto kv : d->children) {
 				auto key = kv.first;
@@ -1052,7 +1223,7 @@ namespace syaml {
 				ss << key << ":";
 				lastWasDash = lastWasNl = false;
 				ss << " ";
-				serialize_(ss, child, depth+1, lastWasNl, lastWasDash);
+				serialize_(child, depth+1);
 				newline();
 			}
 
@@ -1063,7 +1234,7 @@ namespace syaml {
 				ss << "[";
 				lastWasDash = lastWasNl = false;
 				for (int i=0; i<l->children.size(); i++) {
-					serialize_(ss, l->children[i], 1+depth, lastWasNl, lastWasDash);
+					serialize_(l->children[i], 1+depth);
 					if (i<l->children.size()-1) ss << ", ";
 				}
 				ss << "]";
@@ -1078,7 +1249,7 @@ namespace syaml {
 						dash();
 					}
 					lastWasNl = false;
-					serialize_(ss, child, depth+1, lastWasNl, lastWasDash);
+					serialize_(child, depth+1);
 					lastWasDash = false;
 				}
 			}
@@ -1097,12 +1268,15 @@ namespace syaml {
 
 	}
 
-	inline std::string serialize(Node* root) {
-		std::stringstream ss;
-		bool lastWasNl = true;
-		bool lastWasDash = false;
-		serialize_(ss, root, 0, lastWasNl, lastWasDash);
+	// inline std::string serialize(Node* root) {
+	inline std::string Serialization::serialize(Node* root) {
+		serialize_(root, 0);
 		return ss.str();
+	}
+
+	inline std::string serialize(Node* root) {
+		Serialization s;
+		return s.serialize(root);
 	}
 
 

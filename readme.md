@@ -8,3 +8,37 @@ There's some yaml test files randomly created by a python script. Currently the 
    2) Lexing/parsing maps using the `{ ... }` syntax.
 
 I'm sure there's other features in the spec that are not handled too, but these are the top priority!
+
+## User Defined decoding
+```cpp
+
+// Example of user defined conversion.
+//
+struct MyType {
+	int x;
+	int y;
+};
+
+template <> struct YamlDecode<MyType> {
+	// Must set this:
+	static constexpr bool value = true;
+
+	// Exactly one of these must be true:
+	static constexpr bool use_dict = true;
+	static constexpr bool use_list = true;
+	static constexpr bool use_scalar = true;
+
+	// We specified `use_dict`, so `decode` should take a `DictNode`
+	static MyType decode(const DictNode* d) {
+		MyType out;
+		auto x = d->get_("x");
+		auto y = d->get_("y");
+		tpAssert(x);
+		tpAssert(y);
+		out.x = x->as_<int>({});
+		out.y = y->as_<int>({});
+		return out;
+	}
+};
+
+```
