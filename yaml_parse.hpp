@@ -27,7 +27,7 @@
 namespace syaml {
 
 	namespace {
-		int my_strcmp(const char* a, const char* b) {
+		inline int my_strcmp(const char* a, const char* b) {
 		while (1) {
 			if (*a == '\0' and *b == '\0') return 0;
 			if (*a == '\0' or  *b == '\0') return 1;
@@ -403,20 +403,16 @@ namespace syaml {
 
         RootNode* getRoot() const;
 
-        template <class T> inline Node* get(const T& k) const {
-            auto root = getRoot();
-            auto g    = root->guard();
-            return this->get_(k);
-        }
+        template <class T> Node* get(const T& k) const;
 
         template <class T> T as(Opt<T> def = {}) const;
 
-        friend class Parser;
-        friend class Serialization;
-        friend class RootNode;   // why is this neeeded.
-        friend class ListNode;   // why is this neeeded.
-        friend class ScalarNode; // why is this neeeded.
-        friend class DictNode;   // why is this neeeded.
+        friend struct Parser;
+        friend struct Serialization;
+        friend struct RootNode;   // why is this neeeded.
+        friend struct ListNode;   // why is this neeeded.
+        friend struct ScalarNode; // why is this neeeded.
+        friend struct DictNode;   // why is this neeeded.
 
         bool isEmpty() const;
 
@@ -440,9 +436,9 @@ namespace syaml {
             return nullptr;
         }
 
-        SourceRange tokRange;
         Node* parent       = {};
         TokenizedDoc* tdoc = {};
+        SourceRange tokRange;
 
         DictNode* asDict();
         ListNode* asList();
@@ -490,8 +486,6 @@ namespace syaml {
     public:
         using Node::Node;
         virtual ~DictNode();
-
-        int indent = 0;
 
         virtual Node* get_(const char* k) const override;
         virtual Node* get_(uint32_t k) const override;
@@ -590,6 +584,12 @@ namespace syaml {
     //
     // ---------------------------------------------------------------------------------------------------
 
+	template <class T> inline Node* Node::get(const T& k) const {
+		auto root = getRoot();
+		auto g    = root->guard();
+		return this->get_(k);
+	}
+
     // template <typename std::enable_if_t<is_vector<T>::value, T> >
     template <class T>
     // inline std::enable_if_t<is_vector<TV>::value, T> Node::as_(Opt<std::vector<T>> def) const {
@@ -667,12 +667,12 @@ namespace syaml {
 
     std::string Document::findLineAround(int i, int o) const {
         // if (i < 0 or i >= src.length()) return "~";
-        if (i < 0 or i >= src.length()) return "";
+        if (i < 0 or i >= (int)src.length()) return "";
         int s = i;
         // int e = i+1;
         int e = i;
         while (s >= 0 and src[s] != '\n') s--;
-        while (e < src.length() and src[e] != '\n') e++;
+        while (e < (int)src.length() and src[e] != '\n') e++;
         // if (src[e]=='\n') e--;
         // if (o == 0) return std::string_view{src}.substr(s,e);
         if (o == 0) return src.substr(s + 1, e - s - 1);
@@ -773,7 +773,8 @@ namespace syaml {
         Parser* parser;
         ParserGuard(Parser* parser);
         inline ~ParserGuard() {
-            if (!terminated) throw std::runtime_error("unterminated ParserGuard");
+            // if (!terminated) throw std::runtime_error("unterminated ParserGuard");
+            if (!terminated) assert(false && "unterminated ParserGuard");
         }
         inline void accept() {
             terminated = true;
@@ -827,7 +828,7 @@ namespace syaml {
             int off           = doc->distanceFromStartOfLine(startPos);
             // std::string tab = "\t";
             std::string tab = "         ";
-            for (int i = 0; i < lines.size(); i++) {
+            for (uint32_t i = 0; i < lines.size(); i++) {
                 char lineNo[8];
                 sprintf(lineNo, "% 4d", lines[i].first);
                 std::cout << tab << KBLU << lineNo << KNRM "| " << KWHT << lines[i].second << KNRM "\n";
@@ -944,7 +945,7 @@ namespace syaml {
 
         try {
 
-            int indent = 0;
+            uint32_t indent = 0;
             while (peek() == Tok::eNL) {
                 indent = 0;
                 advance();
@@ -1066,7 +1067,7 @@ namespace syaml {
     Node* Parser::tryDict() {
         ParserGuard pg(this);
 
-        int indent     = 0;
+        uint32_t indent     = 0;
         using NodeUPtr = std::unique_ptr<Node>;
         std::vector<std::pair<std::string, NodeUPtr>> cs;
 
@@ -1156,7 +1157,7 @@ namespace syaml {
 
                     // For the inner dict/list, check that the indentation lines up (yes: must
                     // do this here and not the recursive call)
-                    int innerIndent = 0;
+                    uint32_t innerIndent = 0;
                     if (peek() == Tok::eWhitespace) {
                         innerIndent = peek().n;
                         advance();
@@ -1327,7 +1328,7 @@ namespace syaml {
                     // if (0) {
                     ss << "[";
                     lastWasDash = lastWasNl = false;
-                    for (int i = 0; i < l->children.size(); i++) {
+                    for (uint32_t i = 0; i < l->children.size(); i++) {
                         serialize_(l->children[i], 1 + depth);
                         if (i < l->children.size() - 1) ss << ", ";
                     }
@@ -1355,7 +1356,7 @@ namespace syaml {
                 // <<"\n"; ss <<
                 // s->tdoc->doc->getRangeString(SourceRange{node->tdoc->tokens[s->tokRange.start].start,
                 // node->tdoc->tokens[s->tokRange.start].end});
-            } else if (auto s = dynamic_cast<EmptyNode*>(node)) {
+            } else if (dynamic_cast<EmptyNode*>(node)) {
                 ss << " ";
                 lastWasDash = lastWasNl = false;
             } else {
