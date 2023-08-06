@@ -1,8 +1,12 @@
-BasedOnStyle: mozilla
+# BasedOnStyle: mozilla
+BasedOnStyle: WebKit
 ColumnLimit: 120
 AllowShortCaseLabelsOnASingleLine: true
-AlignConsecutiveShortCaseStatements:
-  Enabled: true
-  AcrossEmptyLines: true
-  AcrossComments: true
-  AlignCaseColons: false
+AllowShortIfStatementsOnASingleLine: true
+AllowShortBlocksOnASingleLine: true
+BreakBeforeBraces: Attach
+ReflowComments: true
+AlignAfterOpenBracket: true
+AlignArrayOfStructures: Right
+AlignConsecutiveAssignments: AcrossEmptyLines
+NamespaceIndentation: All
