@@ -6,6 +6,13 @@ project('irn', ['cpp'],
       'optimization=0',
       ])
 
+set_warnings = [
+  # Turn on all warnings
+  '-Wall',
+  # Make critical warnings errors
+  '-Werror=return-type']
+add_project_arguments(set_warnings, language : 'cpp')
+
 python3 = import('python').find_installation('python3')
 python3_path = python3.path()
 

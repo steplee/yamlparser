@@ -658,6 +658,7 @@ namespace syaml {
         if (o == 0) return src.substr(s + 1, e - s - 1);
         if (o > 0) return findLineAround(e + 1, o - 1);
         if (o < 0) return findLineAround(s - 1, o + 1);
+		return "";
     }
     std::vector<std::pair<uint32_t, std::string>> Document::linesAround(int i, int N) const {
         std::vector<std::pair<uint32_t, std::string>> out(N);
