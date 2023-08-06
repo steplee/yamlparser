@@ -29,6 +29,9 @@ namespace syaml {
 
 #define simpleAssert(cond) assert((cond));
 
+// #define syamlPrintf(...) printf(__VA_ARGS__);
+#define syamlPrintf(...) {};
+
 #ifdef SYAML_IMPL
     namespace {
         void format_(std::ostream& os) {
@@ -626,9 +629,11 @@ namespace syaml {
     template <class T> T Node::as(Opt<T> def) const {
         auto g = getRoot()->guard();
         if (dynamic_cast<const EmptyNode*>(this)) {
-			if (def) return *def;
-			else throw std::runtime_error("as<>() called on an EmptyNode with no default provided.");
-		}
+            if (def)
+                return *def;
+            else
+                throw std::runtime_error("as<>() called on an EmptyNode with no default provided.");
+        }
         return as_<T>(def);
     }
 
@@ -661,7 +666,7 @@ namespace syaml {
         if (o == 0) return src.substr(s + 1, e - s - 1);
         if (o > 0) return findLineAround(e + 1, o - 1);
         if (o < 0) return findLineAround(s - 1, o + 1);
-		return "";
+        return "";
     }
     std::vector<std::pair<uint32_t, std::string>> Document::linesAround(int i, int N) const {
         std::vector<std::pair<uint32_t, std::string>> out(N);
@@ -713,14 +718,11 @@ namespace syaml {
         return 0;
     }
     inline Node* ListNode::get_(uint32_t k) const {
-        // syamlAssert(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {},
-        // have {} children)", k, children.size()); syamlWarn(k >= 0 and k < children.size(),
-        // "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
         if (k >= 0 and k < children.size()) {
             return children[k];
         } else {
-            syamlWarn(k >= 0 and k < children.size(),
-                      "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
+            syamlWarn(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked ", k,
+                      " have ", children.size(), " children)");
             return getRoot()->getEmptySentinel();
         }
     }
@@ -736,11 +738,10 @@ namespace syaml {
         }
 
         if (it == children.end()) {
-            syamlWarn(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)", k,
-                      children.size());
+            syamlWarn(it != children.end(), "DictNode.get(k) key not found (", k, " have ", children.size(),
+                      " children)");
             return getRoot()->getEmptySentinel();
         }
-        // syamlAssert(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)",
         // k, children.size());
 
         return it->second;
@@ -845,7 +846,7 @@ namespace syaml {
                 return pg.accept(), newNode;
             }
         } catch (std::runtime_error& e) {
-            std::cout << " - In tryScalar(), starting here:\n";
+            syamlPrintf(" - In tryScalar(), starting here:\n");
             print_line_debug(tdoc, pg.I0);
             pg.reject();
             throw e;
@@ -890,8 +891,8 @@ namespace syaml {
                     std::stringstream ss;
                     cur = peek();
                     cur.print(ss, *tdoc->doc);
-                    printf("inside list, should've parsed list or scalar, peek() is %s\n",
-                           ss.str().c_str());
+                    syamlPrintf("inside list, should've parsed list or scalar, peek() is %s\n",
+                                ss.str().c_str());
                     throw std::runtime_error("inside list, should've parsed list or scalar");
                 }
 
@@ -908,7 +909,7 @@ namespace syaml {
                 }
             }
         } catch (std::runtime_error& e) {
-            std::cout << " - In tryList(), starting here:\n";
+            syamlPrintf(" - In tryList(), starting here:\n");
             print_line_debug(tdoc, pg.I0);
             pg.reject();
             throw e;
@@ -918,7 +919,7 @@ namespace syaml {
 
         for (auto& c : cs) newNode->children.push_back(c.release());
         for (auto& c : newNode->children) c->parent = newNode;
-        printf("return list with nitems=%zu\n", cs.size());
+        syamlPrintf("return list with nitems=%zu\n", cs.size());
 
         return pg.accept(), newNode;
     }
@@ -938,16 +939,16 @@ namespace syaml {
                 if (peek() == Tok::eWhitespace) {
                     // indent = advance().n;
                     indent = peek().n;
-                    printf("see indent %d\n", indent);
+                    syamlPrintf("see indent %d\n", indent);
                 }
             }
             if (peek() == Tok::eWhitespace) {
                 // indent = advance().n;
                 indent = peek().n;
-                printf("see indent %d\n", indent);
+                syamlPrintf("see indent %d\n", indent);
             }
 
-            printf("start tryListFromDash at I=%d\n", I);
+            syamlPrintf("start tryListFromDash at I=%d\n", I);
 
             while (!eof()) {
 
@@ -961,20 +962,21 @@ namespace syaml {
                 }
                 if (eof()) break;
 
-                printf(" - peek() '%s': this indent=%d, expected indent=%d\n",
-                       tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
+                syamlPrintf(" - peek() '%s': this indent=%d, expected indent=%d\n",
+                            tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
                 if (thisIndent < indent) {
-                    printf(" - exiting tryListFromDash because indent was %d < %d\n", thisIndent, indent);
+                    syamlPrintf(" - exiting tryListFromDash because indent was %d < %d\n", thisIndent,
+                                indent);
 
-                    // NOTE: This is really tricky: if we fail on this indent, we must **rewind back
-                    // to newline** if (thisIndent) I -= 1;
+                    // NOTE: This is really tricky: if we fail on this indent, we must **rewind
+                    // back to newline** if (thisIndent) I -= 1;
                     I = savedI;
 
                     break;
                 }
 
                 if (thisIndent > indent) {
-                    printf("inside list from dash, higher indent...\n");
+                    syamlPrintf("inside list from dash, higher indent...\n");
                     I          = savedI;
                     Node* next = nullptr;
                     if (!next) next = tryListFromDash(); // FIXME: Is this correct?
@@ -992,7 +994,7 @@ namespace syaml {
                 if (open != Tok::eDash) {
                     std::stringstream ss;
                     open.print(ss, *tdoc->doc);
-                    printf(" - exiting tryListFromDash, expected dash, got %s\n", ss.str().c_str());
+                    syamlPrintf(" - exiting tryListFromDash, expected dash, got %s\n", ss.str().c_str());
                     return pg.reject(), nullptr;
                 }
 
@@ -1020,7 +1022,7 @@ namespace syaml {
                 // throw std::runtime_error("nothing parse in inner dict");
             }
         } catch (std::runtime_error& e) {
-            std::cout << " - In tryListFromDash(), starting here:\n";
+            syamlPrintf(" - In tryListFromDash(), starting here:\n");
             print_line_debug(tdoc, pg.I0);
             pg.reject();
             throw e;
@@ -1031,7 +1033,7 @@ namespace syaml {
 
         for (auto& c : cs) newNode->children.push_back(c.release());
         for (auto& c : newNode->children) c->parent = newNode;
-        printf("return list with nitems=%zu\n", cs.size());
+        syamlPrintf("return list with nitems=%zu\n", cs.size());
 
         return pg.accept(), newNode;
     }
@@ -1064,16 +1066,16 @@ namespace syaml {
                 if (peek() == Tok::eWhitespace) {
                     // indent = advance().n;
                     indent = peek().n;
-                    printf("see indent %d\n", indent);
+                    syamlPrintf("see indent %d\n", indent);
                 }
             }
             if (peek() == Tok::eWhitespace) {
                 // indent = advance().n;
                 indent = peek().n;
-                printf("see indent %d\n", indent);
+                syamlPrintf("see indent %d\n", indent);
             }
 
-            printf("start tryDict at I=%d\n", I);
+            syamlPrintf("start tryDict at I=%d\n", I);
 
             while (!eof()) {
 
@@ -1085,13 +1087,13 @@ namespace syaml {
                     advance();
                     if (peek() == Tok::eWhitespace) { thisIndent = advance().n; }
                 }
-                printf(" - next key '%s': this indent=%d, expected indent=%d\n",
-                       tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
+                syamlPrintf(" - next key '%s': this indent=%d, expected indent=%d\n",
+                            tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
                 if (thisIndent < indent) {
-                    printf(" - exiting tryDict because indent was %d < %d\n", thisIndent, indent);
+                    syamlPrintf(" - exiting tryDict because indent was %d < %d\n", thisIndent, indent);
 
-                    // NOTE: This is really tricky: if we fail on this indent, we must **rewind back
-                    // to newline** if (thisIndent) I -= 1;
+                    // NOTE: This is really tricky: if we fail on this indent, we must **rewind
+                    // back to newline** if (thisIndent) I -= 1;
                     I = savedI;
 
                     break;
@@ -1099,14 +1101,14 @@ namespace syaml {
 
                 Tok keyTok = advance();
                 if (keyTok != Tok::eIdent) {
-                    printf(" - keyTok @ %d not ident. fail tryDict\n", I - 1);
+                    syamlPrintf(" - keyTok @ %d not ident. fail tryDict\n", I - 1);
                     return pg.reject(), nullptr;
                 }
-                printf(" - keyTok @ %d = %s\n", I - 1, tdoc->getTokenString(keyTok).c_str());
+                syamlPrintf(" - keyTok @ %d = %s\n", I - 1, tdoc->getTokenString(keyTok).c_str());
 
                 Tok colon = advance();
                 if (colon != Tok::eColon) {
-                    printf(" - missing colon. fail tryDict\n");
+                    syamlPrintf(" - missing colon. fail tryDict\n");
                     return pg.reject(), nullptr;
                 }
 
@@ -1125,8 +1127,8 @@ namespace syaml {
                         while (peek() == Tok::eNL) { advance(); }
                         cs.push_back({ tdoc->getTokenString(keyTok), NodeUPtr { innerList } });
                     } else
-                        throw std::runtime_error(
-                            "looked like a list inside a map, but failed to parse the inner list");
+                        throw std::runtime_error("looked like a list inside a map, but failed "
+                                                 "to parse the inner list");
                     continue;
                 }
 
@@ -1140,26 +1142,27 @@ namespace syaml {
                         cur = peek();
                     }
 
-                    // For the inner dict/list, check that the indentation lines up (yes: must do
-                    // this here and not the recursive call)
+                    // For the inner dict/list, check that the indentation lines up (yes: must
+                    // do this here and not the recursive call)
                     int innerIndent = 0;
                     if (peek() == Tok::eWhitespace) {
                         innerIndent = peek().n;
                         advance();
                     }
                     if (innerIndent <= indent) {
-                        printf("in tryDict(), innerIndent %d <= indent %d. This must mean that the "
-                               "current item '%s' is "
-                               "empty.\n",
-                               innerIndent, indent, tdoc->getTokenString(keyTok).c_str());
+                        syamlPrintf("in tryDict(), innerIndent %d <= indent %d. This must mean "
+                                    "that the "
+                                    "current item '%s' is "
+                                    "empty.\n",
+                                    innerIndent, indent, tdoc->getTokenString(keyTok).c_str());
                         cs.push_back({ tdoc->getTokenString(keyTok),
                                        NodeUPtr { new EmptyNode(tdoc, lookahead_pg.currentRange()) } });
                         lookahead_pg.reject();
                         continue;
                     }
 
-                    // NOTE: Always reject `lookahead_pg` because tryDict/tryListFromDash wants the
-                    // whitespace to process itself.
+                    // NOTE: Always reject `lookahead_pg` because tryDict/tryListFromDash wants
+                    // the whitespace to process itself.
 
                     // We MUST be starting a new list
                     if (peek() == Tok::eDash) {
@@ -1200,13 +1203,13 @@ namespace syaml {
                     cs.push_back({ tdoc->getTokenString(keyTok), NodeUPtr { innerScalar } });
                     continue;
                 } else
-                    throw std::runtime_error(
-                        "looked like a scalar inside a map, but failed to parse the inner scalar");
+                    throw std::runtime_error("looked like a scalar inside a map, but failed to "
+                                             "parse the inner scalar");
 
                 throw std::runtime_error("nothing parse in inner dict");
             }
         } catch (std::runtime_error& e) {
-            std::cout << " - In tryDict(), starting here:\n";
+            syamlPrintf(" - In tryDict(), starting here:\n");
             print_line_debug(tdoc, pg.I0);
             pg.reject();
             throw e;
@@ -1335,7 +1338,8 @@ namespace syaml {
             } else if (auto s = dynamic_cast<ScalarNode*>(node)) {
                 ss << s->tdoc->getTokenRangeString(s->tokRange);
                 lastWasDash = lastWasNl = false;
-                // std::cout << " - tokrange is " << s->tokRange.start << " -> " << s->tokRange.end
+                // std::cout << " - tokrange is " << s->tokRange.start << " -> " <<
+                // s->tokRange.end
                 // <<"\n"; ss <<
                 // s->tdoc->doc->getRangeString(SourceRange{node->tdoc->tokens[s->tokRange.start].start,
                 // node->tdoc->tokens[s->tokRange.start].end});
