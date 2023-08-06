@@ -561,6 +561,13 @@ namespace syaml {
 				else return tdoc->getTokenRangeString(tokRange, true);
             }
 
+            if constexpr (std::is_same<V, bool>::value) {
+				std::string s = toScalar<std::string>();
+				if (s.length() > 0 and (s[0] == 't' or s[0] == '1' or s[0] == 'T')) return true;
+				else if (s.length() > 0 and (s[0] == 'f' or s[0] == '0' or s[0] == 'F')) return false;
+				else throw std::runtime_error(std::string{"toScalar<bool>() failed with bad value: "} + s);
+			}
+
             if constexpr (std::is_fundamental<V>::value) {
                 V o;
 				std::stringstream ss;
