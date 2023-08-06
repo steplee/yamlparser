@@ -7,6 +7,15 @@
 #include <iostream>
 #include <climits>
 
+#define KNRM "\x1B[0m"
+#define KRED "\x1B[31m"
+#define KGRN "\x1B[32m"
+#define KYEL "\x1B[33m"
+#define KBLU "\x1B[34m"
+#define KMAG "\x1B[35m"
+#define KCYN "\x1B[36m"
+#define KWHT "\x1B[37m"
+
 
 using namespace syaml;
 
@@ -89,7 +98,7 @@ bool test_simple() {
 	std::cout << "--------------------------------------------------------------------------------------------\n";
 
 	// std::string src = "empty:\na:\n   b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n   - 1\n   -         \n     - 3\n\n       - \"bye\"\n\n #comment:1";
-	std::string src = "empty:\na:\n   b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n - 1\n -\n  - 2\n  - 3\nmyThing:\n x: 1\n y: 2\n";
+	std::string src = "empty:\na:\n   q: \"str\"\n  b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n - 1\n -\n  - 2\n  - 3\nmyThing:\n x: 1\n y: 2\n";
 	// std::string src = "a:\nb: 1.1e2\n";
 	// std::string src = "a:\nb: 1\nc: 1.1e2\n";
 	std::cout << " Doc:\n" << src << "\n\n";
@@ -145,6 +154,10 @@ bool test_simple() {
 		std::cout << " myNonExistentThing = { .x=" << myThing2.x << ", .y=" << myThing2.y << " }" << "\n";
 		check("myThing2.x", myThing2.x == fake.x);
 		check("myThing2.y", myThing2.y == fake.y);
+
+		auto q = root->get("a")->get("q")->as<std::string>();
+		std::cout << " - q = " << q << "\n";
+
 
 	} catch(std::runtime_error& e) {
 		std::cout << " - ERROR " << e.what() << "\n";

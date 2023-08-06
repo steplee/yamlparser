@@ -15,6 +15,28 @@
 #include <sstream>
 #include <type_traits>
 
+namespace syaml {
+
+    namespace {
+        inline int my_strcmp(const char* a, const char* b) {
+            while (1) {
+                if (*a == '\0' and *b == '\0') return 0;
+                if (*a == '\0' or *b == '\0') return 1;
+                if (*a != *b) return 1;
+                a++;
+                b++;
+            }
+            return 1;
+        }
+    }
+
+#define simpleAssert(cond) assert((cond));
+
+// #define syamlPrintf(...) printf(__VA_ARGS__);
+#define syamlPrintf(...) {};
+
+#ifdef SYAML_IMPL
+
 #define KNRM "\x1B[0m"
 #define KRED "\x1B[31m"
 #define KGRN "\x1B[32m"
@@ -24,27 +46,6 @@
 #define KCYN "\x1B[36m"
 #define KWHT "\x1B[37m"
 
-namespace syaml {
-
-	namespace {
-		inline int my_strcmp(const char* a, const char* b) {
-		while (1) {
-			if (*a == '\0' and *b == '\0') return 0;
-			if (*a == '\0' or  *b == '\0') return 1;
-			if (*a != *b) return 1;
-			a++;
-			b++;
-		}
-		return 1;
-	}
-	}
-
-#define simpleAssert(cond) assert((cond));
-
-// #define syamlPrintf(...) printf(__VA_ARGS__);
-#define syamlPrintf(...) {};
-
-#ifdef SYAML_IMPL
     namespace {
         void format_(std::ostream& os) {
         }
@@ -177,7 +178,7 @@ namespace syaml {
             : src(s) {
         }
 
-        const std::string getRangeString(const SourceRange& rng) const;
+        const std::string getRangeString(SourceRange rng, bool trimQuotes=false) const;
         const std::stringstream getRangeStream(const SourceRange& rng) const;
         std::string findLineAround(int i, int o) const;
         std::vector<std::pair<uint32_t, std::string>> linesAround(int i, int N = 3) const;
@@ -253,11 +254,11 @@ namespace syaml {
         inline const std::stringstream getTokenStream(ConstTok& t) const {
             return doc->getRangeStream({ t.start, t.end });
         }
-        inline const std::string getTokenRangeString(const SourceRange& ts) const {
+        inline const std::string getTokenRangeString(const SourceRange& ts, bool trimQuotes=false) const {
             const auto& l = tokens[ts.start];
             // const auto& r = tokens[ts.end    ];
             const auto& r = tokens[ts.end - 1];
-            return doc->getRangeString({ l.start, r.end });
+            return doc->getRangeString({ l.start, r.end }, trimQuotes);
         }
         inline const std::stringstream getTokenRangeStream(const SourceRange& ts) const {
             const auto& l = tokens[ts.start];
@@ -531,7 +532,7 @@ namespace syaml {
 
             if constexpr (std::is_same<V, std::string>::value) {
                 // return tdoc->getRangeString(range);
-                return tdoc->getTokenRangeString(tokRange);
+                return tdoc->getTokenRangeString(tokRange, true);
             }
 
             if constexpr (std::is_fundamental<V>::value) {
@@ -584,11 +585,11 @@ namespace syaml {
     //
     // ---------------------------------------------------------------------------------------------------
 
-	template <class T> inline Node* Node::get(const T& k) const {
-		auto root = getRoot();
-		auto g    = root->guard();
-		return this->get_(k);
-	}
+    template <class T> inline Node* Node::get(const T& k) const {
+        auto root = getRoot();
+        auto g    = root->guard();
+        return this->get_(k);
+    }
 
     // template <typename std::enable_if_t<is_vector<T>::value, T> >
     template <class T>
@@ -690,8 +691,10 @@ namespace syaml {
         return out;
     }
 
-    const std::string Document::getRangeString(const SourceRange& rng) const {
+    const std::string Document::getRangeString(SourceRange rng, bool trimQuotes) const {
         assert(rng.end >= rng.start);
+		if (trimQuotes and src[rng.start] == '"') rng.start++;
+		if (trimQuotes and src[rng.end-1] == '"') rng.end  --;
         std::string snippet = src.substr(rng.start, rng.end - rng.start);
         return snippet;
     }
@@ -750,8 +753,8 @@ namespace syaml {
         }
 
         if (it == children.end()) {
-            syamlWarn(it != children.end(), "DictNode.get(k) key not found ('", k, "' have ", children.size(),
-                      " children)");
+            syamlWarn(it != children.end(), "DictNode.get(k) key not found ('", k, "' have ",
+                      children.size(), " children)");
             return getRoot()->getEmptySentinel();
         }
         // k, children.size());
@@ -1067,8 +1070,8 @@ namespace syaml {
     Node* Parser::tryDict() {
         ParserGuard pg(this);
 
-        uint32_t indent     = 0;
-        using NodeUPtr = std::unique_ptr<Node>;
+        uint32_t indent = 0;
+        using NodeUPtr  = std::unique_ptr<Node>;
         std::vector<std::pair<std::string, NodeUPtr>> cs;
 
         try {
