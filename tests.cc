@@ -125,7 +125,6 @@ bool test_simple() {
 
 		Parser p;
 		auto root = std::unique_ptr<RootNode>(p.parse(&tdoc));
-		std::cout << "\n - Serialized parsed doc:\n" << serialize(root.get()) << "\n";
 
 		auto c = root->get("c");
 		assert(c);
@@ -157,6 +156,16 @@ bool test_simple() {
 
 		auto q = root->get("a")->get("q")->as<std::string>();
 		std::cout << " - q = " << q << "\n";
+
+		// Test set()
+		root->set<int>("newValue", 1);
+		std::cout << " - newValue = " << root->get("newValue")->as<int>() << "\n";
+		root->get("a")->set<int>("newValue", 1);
+		root->get("a")->set<std::string>("newValue2", "str");
+		std::cout << " - a/newValue = " << root->get("a")->get("newValue")->as<int>() << "\n";
+		std::cout << " - a/newValue2 = " << root->get("a")->get("newValue2")->as<std::string>() << "\n";
+
+		std::cout << "\n - Serialized parsed doc:\n" << serialize(root.get()) << "\n";
 
 
 	} catch(std::runtime_error& e) {

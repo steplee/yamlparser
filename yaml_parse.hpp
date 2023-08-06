@@ -15,6 +15,39 @@
 #include <sstream>
 #include <type_traits>
 
+    //
+    // A simple YAML-like recursive descent parser.
+    // Did not read the spec at all while writing this, so don't expect it to recognize valid YAML
+    //
+    //      o You access children nodes with the `get` function, which has two overloads:
+    //          - Only use the `get(int)` key on list nodes.
+    //          - Only use the `get(const char*)` key on dict nodes.
+    //          - Never use `get` on a scalar node.
+    //      o You get unwrapped data out by using the `as` template function. It has three usages:
+    //          - For scalar nodes, only use `as<T>()` with T a fundamental type or a string.
+    //          - For dict nodes, only use `as<T>()` with T an unordered map.
+    //          - For list nodes, only use `as<T>()` with T a vector.
+    //
+    // NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general,
+    // prefer using strings with quotes.
+    //
+    // NOTE: Lots of inefficiencies such as:
+    //				copying string keys rather than using `string_view`s into the document
+    // string. 				extraneous copying of nodes (the UPtrs result in lots of short
+    // lived objects).
+    //
+    // FIXME: This implementation fails the tests from serialized pyyaml outputs because it does not
+    // support:
+    //          1) Parsing multiple layers of lists on one line, for example: ' - - 1'
+    //          2) Lexing/parsing maps using the '{ ... }' syntax.
+	//
+	// NOTE: Adding a set() method made the code a little incoherent because originally I thought to tie values
+	//       to ranges of the document's source string.
+	//       With set() however, there is no longer any fixed relationship to the document.
+	//       So I handled that by having every node have a string. It is empty if the node corresponds to one from the document.
+	//       Otherwise it is the textual representation of the value passed to set()
+    //
+
 namespace syaml {
 
     namespace {
@@ -68,32 +101,6 @@ namespace syaml {
     }
 #endif
 
-    //
-    // A simple YAML-like recursive descent parser.
-    // Did not read the spec at all while writing this, so don't expect it to recognize valid YAML
-    //
-    //      o You access children nodes with the `get` function, which has two overloads:
-    //          - Only use the `get(int)` key on list nodes.
-    //          - Only use the `get(const char*)` key on dict nodes.
-    //          - Never use `get` on a scalar node.
-    //      o You get unwrapped data out by using the `as` template function. It has three usages:
-    //          - For scalar nodes, only use `as<T>()` with T a fundamental type or a string.
-    //          - For dict nodes, only use `as<T>()` with T an unordered map.
-    //          - For list nodes, only use `as<T>()` with T a vector.
-    //
-    // NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general,
-    // prefer using strings with quotes.
-    //
-    // NOTE: Lots of inefficiencies such as:
-    //				copying string keys rather than using `string_view`s into the document
-    // string. 				extraneous copying of nodes (the UPtrs result in lots of short
-    // lived objects).
-    //
-    // FIXME: This implementation fails the tests from serialized pyyaml outputs because it does not
-    // support:
-    //          1) Parsing multiple layers of lists on one line, for example: ' - - 1'
-    //          2) Lexing/parsing maps using the '{ ... }' syntax.
-    //
 
     template <class T> struct Decode {
         static constexpr bool use_dict   = false;
@@ -260,7 +267,7 @@ namespace syaml {
             const auto& r = tokens[ts.end - 1];
             return doc->getRangeString({ l.start, r.end }, trimQuotes);
         }
-        inline const std::stringstream getTokenRangeStream(const SourceRange& ts) const {
+        inline std::stringstream getTokenRangeStream(const SourceRange& ts) const {
             const auto& l = tokens[ts.start];
             // const auto& r = tokens[ts.end  ];
             const auto& r = tokens[ts.end - 1];
@@ -394,17 +401,27 @@ namespace syaml {
     struct Node {
 
     public:
+
+		// From parsed document
         inline Node(TokenizedDoc* tdoc, SourceRange tokRange)
             : parent(nullptr)
             , tdoc(tdoc)
             , tokRange(tokRange) {
         }
 
+		// From dynamic set() call
+        inline Node(const std::string& valueStr)
+            : parent(nullptr)
+            , tdoc(nullptr)
+            , tokRange({}),
+			valueStr(valueStr) {}
+
         inline virtual ~Node() {};
 
         RootNode* getRoot() const;
 
         template <class T> Node* get(const T& k) const;
+        template <class T> void  set(const char* k, const T& v);
 
         template <class T> T as(Opt<T> def = {}) const;
 
@@ -428,18 +445,20 @@ namespace syaml {
         template <class T> std::enable_if_t<is_scalar<T>::value, T> as_(Opt<T> def) const;
         template <class T> std::enable_if_t<is_decodable<T>::value, T> as_(Opt<T> def) const;
 
-        virtual Node* get_(const char* k) const {
+        inline virtual Node* get_(const char* k) const {
             simpleAssert(false);
             return nullptr;
         }
-        virtual Node* get_(uint32_t i) const {
+        inline virtual Node* get_(uint32_t i) const {
             simpleAssert(false);
             return nullptr;
         }
+        template <class T> void set_(const char* k, const T& v);
 
         Node* parent       = {};
         TokenizedDoc* tdoc = {};
         SourceRange tokRange;
+		std::string valueStr; // if not null: this node is from a set() call
 
         DictNode* asDict();
         ListNode* asList();
@@ -532,13 +551,19 @@ namespace syaml {
 
             if constexpr (std::is_same<V, std::string>::value) {
                 // return tdoc->getRangeString(range);
-                return tdoc->getTokenRangeString(tokRange, true);
+				if (valueStr.length()) return valueStr;
+				else return tdoc->getTokenRangeString(tokRange, true);
             }
 
             if constexpr (std::is_fundamental<V>::value) {
                 V o;
-                auto ss = tdoc->getTokenRangeStream(tokRange);
-                ss >> o;
+				std::stringstream ss;
+				if (valueStr.length()) {
+					ss = std::stringstream{valueStr};
+				} else {
+					ss = tdoc->getTokenRangeStream(tokRange);
+				}
+				ss >> o;
                 assert(ss.eof() && "failed or partial parse");
                 // std::cout << " - parse this str :: " << ss.str() << " => " << o << "\n";
                 return o;
@@ -589,6 +614,12 @@ namespace syaml {
         auto root = getRoot();
         auto g    = root->guard();
         return this->get_(k);
+    }
+
+    template <class T> inline void Node::set(const char* k, const T& v) {
+        auto root = getRoot();
+        auto g    = root->guard();
+        return this->set_(k,v);
     }
 
     // template <typename std::enable_if_t<is_vector<T>::value, T> >
@@ -649,6 +680,32 @@ namespace syaml {
         }
         return as_<T>(def);
     }
+
+    template <class T> void Node::set_(const char* k, const T& v) {
+		auto self = dynamic_cast<DictNode*>(this);
+		if (not self) {
+			throw std::runtime_error("set_ is only supported on DictNodes for now!");
+		}
+
+		std::string kk{k};
+		auto oldIt = std::find_if(self->children.begin(), self->children.end(),
+							[k](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k); });
+		if (oldIt != self->children.end()) delete oldIt->second;
+		if (oldIt != self->children.end()) self->children.erase(oldIt);
+
+		std::string valueStr;
+		if constexpr (std::is_same<T, std::string>::value) {
+			valueStr = "\"" + v + "\"";
+		} else {
+			std::stringstream ss;
+			ss << v;
+			valueStr = ss.str();
+		}
+		auto newNode = new ScalarNode(valueStr);
+		newNode->parent = this;
+
+		self->children.push_back({kk,newNode});
+	}
 
 #ifdef SYAML_IMPL
 
@@ -711,6 +768,7 @@ namespace syaml {
     RootNode::~RootNode() {
         delete sentinel;
     }
+
 
     Node* ScalarNode::get_(const char* k) const {
         syamlAssert(false, "ScalarNode.get(str) called.");
@@ -1352,13 +1410,12 @@ namespace syaml {
                     }
                 }
             } else if (auto s = dynamic_cast<ScalarNode*>(node)) {
-                ss << s->tdoc->getTokenRangeString(s->tokRange);
+				if (s->valueStr.length() != 0) {
+					ss << s->valueStr;
+				} else {
+					ss << s->tdoc->getTokenRangeString(s->tokRange);
+				}
                 lastWasDash = lastWasNl = false;
-                // std::cout << " - tokrange is " << s->tokRange.start << " -> " <<
-                // s->tokRange.end
-                // <<"\n"; ss <<
-                // s->tdoc->doc->getRangeString(SourceRange{node->tdoc->tokens[s->tokRange.start].start,
-                // node->tdoc->tokens[s->tokRange.start].end});
             } else if (dynamic_cast<EmptyNode*>(node)) {
                 ss << " ";
                 lastWasDash = lastWasNl = false;
