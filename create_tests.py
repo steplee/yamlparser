@@ -59,4 +59,8 @@ def generate(maxDepth, fanout):
 
     return nextDict(0)
 
-print(generate(3, 8))
+# print(generate(3, 8))
+for i in range(5):
+    with open(f'test{i:}.yaml', 'w') as fp:
+        d = generate(3,8)
+        yaml.dump(d, fp)

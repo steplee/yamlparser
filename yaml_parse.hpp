@@ -6,14 +6,26 @@
 #include <memory>
 #include <algorithm>
 #include <cstring>
+// #include <format>
 
 #include <sstream>
 #include <iostream>
 #include <type_traits>
 #include <stack>
 
+#define KNRM "\x1B[0m"
+#define KRED "\x1B[31m"
+#define KGRN "\x1B[32m"
+#define KYEL "\x1B[33m"
+#define KBLU "\x1B[34m"
+#define KMAG "\x1B[35m"
+#define KCYN "\x1B[36m"
+#define KWHT "\x1B[37m"
+
 #ifndef tpAssert
-#define tpAssert(cond, ...) assert((cond));
+// #define tpAssert(cond, ...) assert((cond));
+// #define tpAssert(cond, ...) if (! (cond)) throw std::runtime_error(std::format(__VA_ARGS__));
+#define tpAssert(cond, ...) if (! (cond)) throw std::runtime_error("");
 #endif tpAssert
 
 //
@@ -29,12 +41,15 @@
 //          - For dict nodes, only use `as<T>()` with T an unordered map.
 //          - For list nodes, only use `as<T>()` with T a vector.
 //
-// WARNING: The error printing thing is busted.
 // NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general, prefer using strings with quotes.
 //
 // NOTE: Lots of inefficiencies such as:
 //				copying string keys rather than using `string_view`s into the document string.
 //				extraneous copying of nodes (the UPtrs result in lots of short lived objects).
+//
+// FIXME: This implementation fails the tests from serialized pyyaml outputs because it does not support:
+//          1) Parsing multiple layers of lists on one line, for example: ' - - 1'
+//          2) Lexing/parsing maps using the '{ ... }' syntax.
 //
 
 namespace syaml {
@@ -101,7 +116,8 @@ namespace syaml {
 			// if (i < 0 or i >= src.length()) return "~";
 			if (i < 0 or i >= src.length()) return "";
 			int s = i;
-			int e = i+1;
+			// int e = i+1;
+			int e = i;
 			while (s>=0 and src[s]!='\n') s--;
 			while (e<src.length() and src[e]!='\n') e++;
 			// if (o == 0) return std::string_view{src}.substr(s,e);
@@ -137,7 +153,8 @@ namespace syaml {
 			eNumber,
 			eString,
 			eOpenBrace,
-			eCloseBrace
+			eCloseBrace,
+			eEOF
 		} lexeme;
 		uint32_t n=0;
 		uint32_t start;
@@ -160,6 +177,7 @@ namespace syaml {
 				case eString: os << "str"; break;
 				case eOpenBrace: os << "openBrace"; break;
 				case eCloseBrace: os << "closeBrace"; break;
+				case eEOF: os << "eof"; break;
 			}
 			if (lexeme != eNL)
 				os << ", '" << std::string_view{doc.src}.substr(start, end-start);
@@ -210,7 +228,7 @@ namespace syaml {
 		auto& ts = out.tokens;
 		const auto& s = doc->src;
 		uint32_t N = (uint32_t) s.length();
-		assert(N>0);
+		tpAssert(N>0);
 		uint32_t i = 0;
 		while (i < N) {
 			uint32_t i0 = i;
@@ -232,7 +250,7 @@ namespace syaml {
 			else if (s[i] == '\"') {
 				i++;
 				while (i<N and s[i] != '"') { n++; i++; }
-				assert(s[i] == '"');
+				tpAssert(s[i] == '"');
 				// ts.push_back(Tok{Tok::eString,n,i0+1,i++});
 				ts.push_back(Tok{Tok::eString,n,i0,++i});
 			}
@@ -255,7 +273,7 @@ namespace syaml {
 				int n_d = 0;
 				while (i<N) {
 					if (s[i] == 'e') {
-						if (n_e) assert(false && "multiple 'e' in float.");
+						if (n_e) tpAssert(false && "multiple 'e' in float.");
 						n_e++;
 						i++;
 						// allow like '1e-2'
@@ -263,7 +281,7 @@ namespace syaml {
 							i++;
 						}
 					} else if (s[i] == '.') {
-						if (n_d) assert(false && "multiple '.' in float.");
+						if (n_d) tpAssert(false && "multiple '.' in float.");
 						n_d++;
 						i++;
 					} else if (is_numer(s[i])) {
@@ -283,9 +301,11 @@ namespace syaml {
 			else if (s[i] == ':') ts.push_back(Tok{Tok::eColon,n,i0,++i});
 			else if (s[i] == '[') ts.push_back(Tok{Tok::eOpenBrace,n,i0,++i});
 			else if (s[i] == ']') ts.push_back(Tok{Tok::eCloseBrace,n,i0,++i});
-			else { assert(false); }
-
+			else { tpAssert(false); }
 		}
+
+		ts.push_back(Tok{Tok::eEOF,0,i,i});
+
 		return out;
 	}
 
@@ -443,9 +463,6 @@ namespace syaml {
 
 				if constexpr(
 						std::is_fundamental<V>::value
-						// std::is_same<V, int64_t>::value or
-						// std::is_same<V, double>::value or
-						// std::is_same<V, bool>::value
 						) {
 					V o;
 					// auto ss = tdoc->getRangeStream(range);
@@ -489,9 +506,14 @@ namespace syaml {
 
 			uint32_t I = 0;
 			
-			inline bool eof() { return I >= tdoc->size(); }
+			// inline bool eof() { return I >= tdoc->size(); }
 			inline ConstTok& peek() { return (*tdoc)[I]; }
 			inline ConstTok& advance() { return (*tdoc)[I++]; }
+			inline bool eof() {
+				tpAssert(I <= tdoc->size());
+				return peek() == Tok::eEOF;
+			}
+			void skipUntilNonEmptyLine();
 	};
 
 	struct ParserGuard {
@@ -526,21 +548,25 @@ namespace syaml {
 		tdoc = tdoc_;
 
 		root = (DictNode*) tryDict();
-		assert(root != nullptr);
+		tpAssert(root != nullptr);
 	}
 
-	inline static void print_line_debug(Document* doc, uint32_t startPos) {
+	inline static void print_line_debug(TokenizedDoc* tdoc, uint32_t startPosTok) {
 				// auto doc = tdoc->doc;
+				uint32_t startPos = tdoc->tokens[startPosTok].start;
+				auto doc = tdoc->doc;
 				auto lines = doc->linesAround(startPos);
 				int off = doc->distanceFromStartOfLine(startPos);
+				// std::string tab = "\t";
+				std::string tab = "         ";
 				for (int i=0; i<lines.size(); i++) {
 					char lineNo[8];
 					sprintf(lineNo, "% 4d", lines[i].first);
-					std::cout << "\t" << lineNo << "| " << lines[i].second << "\n";
+					std::cout << tab << KBLU << lineNo << KNRM "| " << KWHT << lines[i].second << KNRM "\n";
 					if (i == lines.size() / 2) {
-						std::cout << "\t       ";
+						std::cout << tab << "      ";
 						for (int i=0; i<off; i++) std::cout << " ";
-						std::cout << "^\n";
+						std::cout << KYEL "^" KNRM "\n";
 					}
 				}
 	}
@@ -551,7 +577,7 @@ namespace syaml {
 		try {
 
 			Tok cur = peek();
-			while (!eof() and cur == Tok::eWhitespace) cur = advance();
+			while (cur == Tok::eWhitespace) cur = advance();
 
 			if (eof()) {
 				throw std::runtime_error("tried scalar, but is eof");
@@ -567,7 +593,7 @@ namespace syaml {
 
 		} catch(std::runtime_error& e) {
 			std::cout << " - In tryScalar(), starting here:\n";
-			print_line_debug(tdoc->doc, pg.I0);
+			print_line_debug(tdoc, pg.I0);
 			pg.reject();
 			throw e;
 		}
@@ -584,7 +610,7 @@ namespace syaml {
 
 		try {
 
-			while (!eof() and peek() == Tok::eWhitespace) advance();
+			while (peek() == Tok::eWhitespace) advance();
 
 			Tok open = advance();
 			if (open != Tok::eOpenBrace) return pg.reject(), nullptr;
@@ -595,9 +621,9 @@ namespace syaml {
 
 
 			while (!eof()) {
-				while (!eof() and peek() == Tok::eWhitespace or peek() == Tok::eNL) {
-					while (!eof() and peek() == Tok::eWhitespace) advance();
-					while (!eof() and peek() == Tok::eNL) advance();
+				while (peek() == Tok::eWhitespace or peek() == Tok::eNL) {
+					while (peek() == Tok::eWhitespace) advance();
+					while (peek() == Tok::eNL) advance();
 				}
 				Tok cur = peek();
 				if (eof()) {
@@ -636,7 +662,7 @@ namespace syaml {
 
 		} catch(std::runtime_error& e) {
 			std::cout << " - In tryList(), starting here:\n";
-			print_line_debug(tdoc->doc, pg.I0);
+			print_line_debug(tdoc, pg.I0);
 			pg.reject();
 			throw e;
 		}
@@ -658,16 +684,16 @@ namespace syaml {
 		try {
 
 			int indent = 0;
-			while (!eof() and peek() == Tok::eNL) {
+			while (peek() == Tok::eNL) {
 				indent = 0;
 				advance();
-				if (!eof() and peek() == Tok::eWhitespace) {
+				if (peek() == Tok::eWhitespace) {
 					// indent = advance().n;
 					indent = peek().n;
 					printf("see indent %d\n", indent);
 				}
 			}
-			if (!eof() and peek() == Tok::eWhitespace) {
+			if (peek() == Tok::eWhitespace) {
 				// indent = advance().n;
 				indent = peek().n;
 				printf("see indent %d\n", indent);
@@ -682,7 +708,7 @@ namespace syaml {
 				if (peek() == Tok::eWhitespace) {
 					thisIndent = advance().n;
 				}
-				while (!eof() and peek() == Tok::eNL) {
+				while (peek() == Tok::eNL) {
 					thisIndent = 0;
 					advance();
 					if (peek() == Tok::eWhitespace) {
@@ -725,7 +751,7 @@ namespace syaml {
 				}
 
 				Tok cur = peek();
-				while (!eof() and peek() == Tok::eWhitespace) cur = advance();
+				while (peek() == Tok::eWhitespace) cur = advance();
 				if (eof()) {
 					throw std::runtime_error("inside dashList, should've parsed something, got eof");
 				}
@@ -751,7 +777,7 @@ namespace syaml {
 
 		} catch(std::runtime_error& e) {
 			std::cout << " - In tryListFromDash(), starting here:\n";
-			print_line_debug(tdoc->doc, pg.I0);
+			print_line_debug(tdoc, pg.I0);
 			pg.reject();
 			throw e;
 		}
@@ -766,6 +792,19 @@ namespace syaml {
 	}
 
 
+	void Parser::skipUntilNonEmptyLine() {
+		// Go from current position to end of line. If we see any non whitespace, stop.
+		while (peek() == Tok::eWhitespace) advance();
+		// Do the skipping process
+		int rollback = I;
+		while (peek() == Tok::eNL) {
+			advance();
+			rollback = I;
+			while (peek() == Tok::eWhitespace) advance();
+		}
+		I = rollback;
+	}
+
 	Node* Parser::tryDict() {
 		ParserGuard pg(this);
 
@@ -775,16 +814,16 @@ namespace syaml {
 
 		try {
 
-			while (!eof() and peek() == Tok::eNL) {
+			while (peek() == Tok::eNL) {
 				indent = 0;
 				advance();
-				if (!eof() and peek() == Tok::eWhitespace) {
+				if (peek() == Tok::eWhitespace) {
 					// indent = advance().n;
 					indent = peek().n;
 					printf("see indent %d\n", indent);
 				}
 			}
-			if (!eof() and peek() == Tok::eWhitespace) {
+			if (peek() == Tok::eWhitespace) {
 				// indent = advance().n;
 				indent = peek().n;
 				printf("see indent %d\n", indent);
@@ -800,7 +839,7 @@ namespace syaml {
 				if (peek() == Tok::eWhitespace) {
 					thisIndent = advance().n;
 				}
-				while (!eof() and peek() == Tok::eNL) {
+				while (peek() == Tok::eNL) {
 					thisIndent = 0;
 					advance();
 					if (peek() == Tok::eWhitespace) {
@@ -819,19 +858,19 @@ namespace syaml {
 				}
 
 				Tok keyTok = advance();
-				if (eof() or keyTok != Tok::eIdent) {
+				if (keyTok != Tok::eIdent) {
 					printf(" - keyTok @ %d not ident. fail tryDict\n", I-1);
 					return pg.reject(), nullptr;
 				}
 				printf(" - keyTok @ %d = %s\n", I-1, tdoc->getTokenString(keyTok).c_str());
 
 				Tok colon = advance();
-				if (eof() or colon != Tok::eColon) {
+				if (colon != Tok::eColon) {
 					printf(" - missing colon. fail tryDict\n");
 					return pg.reject(), nullptr;
 				}
 
-				while (!eof() and peek() == Tok::eWhitespace) {
+				while (peek() == Tok::eWhitespace) {
 					advance();
 				}
 
@@ -846,25 +885,40 @@ namespace syaml {
 					// advance();
 					Node* innerList = tryList();
 					if (innerList) {
-						while (!eof() and peek() == Tok::eWhitespace) { advance(); }
-						while (!eof() and peek() == Tok::eNL) { advance(); }
+						while (peek() == Tok::eWhitespace) { advance(); }
+						while (peek() == Tok::eNL) { advance(); }
 						cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{innerList}});
 					} else
 						throw std::runtime_error("looked like a list inside a map, but failed to parse the inner list");
 					continue;
 				}
 
+
 				// We MUST be starting a list, map, or empty item
 				if (cur == Tok::eNL) {
 
-					// We MUST be starting a new list
 					ParserGuard lookahead_pg(this);
-					while (cur == Tok::eNL or cur == Tok::eWhitespace) {
+					cur = peek();
+					while (cur == Tok::eNL) {
 						advance();
 						cur = peek();
 					}
 
-					// NOTE: Reject `lookahead_pg` because tryDict/tryListFromDash wants the whitespace to process itself.
+					// For the inner dict/list, check that the indentation lines up (yes: must do this here and not the recursive call)
+					int innerIndent=0;
+					if (peek() == Tok::eWhitespace) {
+						innerIndent = peek().n;
+						advance();
+					}
+					if (innerIndent <= indent) {
+						printf("in tryDict(), innerIndent %d <= indent %d. This must mean that the current item '%s' is empty.\n", innerIndent, indent, tdoc->getTokenString(keyTok).c_str());
+						cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{new EmptyNode(tdoc, lookahead_pg.currentRange())}});
+						lookahead_pg.reject();
+						continue;
+					}
+
+
+					// NOTE: Always reject `lookahead_pg` because tryDict/tryListFromDash wants the whitespace to process itself.
 
 					// We MUST be starting a new list
 					if (peek() == Tok::eDash) {
@@ -886,17 +940,6 @@ namespace syaml {
 						// We MUST be starting a new map
 						while (peek() == Tok::eNL) advance();
 
-						int innerIndent=0;
-						if (peek() == Tok::eWhitespace) {
-							innerIndent = peek().n;
-							advance();
-						}
-
-						if (innerIndent <= indent) {
-							printf("in tryDict(), innerIndent < indent. This must mean that the current item '%s' is empty.\n", tdoc->getTokenString(keyTok).c_str());
-							cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{new EmptyNode(tdoc, lookahead_pg.currentRange())}});
-							continue;
-						}
 
 						Node* innerDict = tryDict();
 						if (innerDict) {
@@ -911,8 +954,8 @@ namespace syaml {
 				// We MUST be starting a scalar
 				Node* innerScalar = tryScalar();
 				if (innerScalar) {
-						while (!eof() and peek() == Tok::eWhitespace) { advance(); }
-						while (!eof() and peek() == Tok::eNL) { advance(); }
+						while (peek() == Tok::eWhitespace) { advance(); }
+						while (peek() == Tok::eNL) { advance(); }
 						cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{innerScalar}});
 						continue;
 				} else
@@ -924,7 +967,7 @@ namespace syaml {
 
 		} catch(std::runtime_error& e) {
 			std::cout << " - In tryDict(), starting here:\n";
-			print_line_debug(tdoc->doc, pg.I0);
+			print_line_debug(tdoc, pg.I0);
 			pg.reject();
 			throw e;
 		}
@@ -935,7 +978,7 @@ namespace syaml {
 				for (auto& kv : cs) newNode->children.push_back({kv.first,kv.second.release()});
 			} else {
 				// for (auto& kv : cs) newNode->children[kv.first] = kv.second.release();
-				assert(false);
+				tpAssert(false);
 			}
 			return pg.accept(), newNode;
 		} else return pg.reject(), nullptr;
@@ -1049,7 +1092,7 @@ namespace syaml {
 			ss << " ";
 			lastWasDash = lastWasNl = false;
 		} else {
-			assert(false);
+			tpAssert(false);
 		}
 
 	}

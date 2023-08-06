@@ -1,8 +1,9 @@
 project('irn', ['cpp'],
     default_options : [
       'cpp_std=c++17',
-      'buildtype=debugoptimized',
-      'optimization=2',
+      # 'buildtype=debugoptimized',
+      'buildtype=debug',
+      'optimization=0',
       ])
 
 python3 = import('python').find_installation('python3')
