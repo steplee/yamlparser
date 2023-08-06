@@ -33,8 +33,8 @@
 // NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general, prefer using strings with quotes.
 //
 // NOTE: Lots of inefficiencies such as:
-//       copying string keys rather than using `string_view`s into the document string.
-//       extraneous copying of nodes (the UPtrs result in lots of short lived objects).
+//				copying string keys rather than using `string_view`s into the document string.
+//				extraneous copying of nodes (the UPtrs result in lots of short lived objects).
 //
 
 namespace syaml {
@@ -70,6 +70,12 @@ namespace syaml {
 	template <class T>
 	using is_scalar    = std::negation<std::disjunction<is_vector<T>, is_map<T>>>;
 
+
+	// ---------------------------------------------------------------------------------------------------
+	//
+	//   Lexing & Document
+	//
+	// ---------------------------------------------------------------------------------------------------
 
 	struct SourceRange {
 		uint32_t start;
@@ -286,11 +292,17 @@ namespace syaml {
 
 
 
+	// ---------------------------------------------------------------------------------------------------
+	//
+	//   AST
+	//
+	// ---------------------------------------------------------------------------------------------------
 
 
 	struct ListNode;
 	struct DictNode;
 	struct ScalarNode;
+	struct EmptyNode;
 	struct Node {
 		SourceRange tokRange;
 		Node* parent={};
@@ -316,10 +328,22 @@ namespace syaml {
 		DictNode* asDict();
 		ListNode* asList();
 		ScalarNode* asScalar();
+		EmptyNode* asEmpty();
 
 	};
 
 
+	struct EmptyNode : public Node {
+			using Node::Node;
+			inline virtual ~EmptyNode() {}
+
+			inline virtual Node* get(const char* k) const override {
+				tpAssert(false, "EmptyNode.get(str) called.");
+			}
+			inline virtual Node* get(uint32_t k) const override {
+				tpAssert(false, "EmptyNode.get(int)");
+			}
+	};
 	struct ListNode : public Node {
 
 		// private:
@@ -437,6 +461,14 @@ namespace syaml {
 	};
 
 
+
+	// ---------------------------------------------------------------------------------------------------
+	//
+	//   Parsing
+	//
+	// ---------------------------------------------------------------------------------------------------
+
+
 	struct Parser {
 		public:
 			TokenizedDoc* tdoc;
@@ -447,8 +479,6 @@ namespace syaml {
 
 			~Parser();
 
-		// private:
-
 			Tok lex();
 			void parseDict(DictNode* parent);
 
@@ -458,11 +488,6 @@ namespace syaml {
 			Node* tryScalar();
 
 			uint32_t I = 0;
-			int parentIndent = 0;
-			// char peek() { return doc->src[I]; }
-			// char advance() { return doc->src[I++]; }
-			// inline bool atEnd() const { return I >= doc->src.length(); };
-			// inline Node* fail(int rollback) { I = rollback; return nullptr; }
 			
 			inline bool eof() { return I >= tdoc->size(); }
 			inline ConstTok& peek() { return (*tdoc)[I]; }
@@ -744,7 +769,6 @@ namespace syaml {
 	Node* Parser::tryDict() {
 		ParserGuard pg(this);
 
-		// int indent = parentIndent;
 		int indent = 0;
 		using NodeUPtr = std::unique_ptr<Node>;
 		std::vector<std::pair<std::string, NodeUPtr>> cs;
@@ -830,7 +854,7 @@ namespace syaml {
 					continue;
 				}
 
-				// We MUST be starting a list or map
+				// We MUST be starting a list, map, or empty item
 				if (cur == Tok::eNL) {
 
 					// We MUST be starting a new list
@@ -840,9 +864,10 @@ namespace syaml {
 						cur = peek();
 					}
 
+					// NOTE: Reject `lookahead_pg` because tryDict/tryListFromDash wants the whitespace to process itself.
+
 					// We MUST be starting a new list
 					if (peek() == Tok::eDash) {
-						// Reject because tryListFromDash wants the whitespace to process itself.
 						// lookahead_pg.accept();
 						lookahead_pg.reject();
 
@@ -859,7 +884,20 @@ namespace syaml {
 					lookahead_pg.reject();
 					{
 						// We MUST be starting a new map
-						while (peek() == Tok::eNL) cur = advance();
+						while (peek() == Tok::eNL) advance();
+
+						int innerIndent=0;
+						if (peek() == Tok::eWhitespace) {
+							innerIndent = peek().n;
+							advance();
+						}
+
+						if (innerIndent <= indent) {
+							printf("in tryDict(), innerIndent < indent. This must mean that the current item '%s' is empty.\n", tdoc->getTokenString(keyTok).c_str());
+							cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{new EmptyNode(tdoc, lookahead_pg.currentRange())}});
+							continue;
+						}
+
 						Node* innerDict = tryDict();
 						if (innerDict) {
 							cs.push_back({tdoc->getTokenString(keyTok), NodeUPtr{innerDict}});
@@ -903,6 +941,15 @@ namespace syaml {
 		} else return pg.reject(), nullptr;
 
 	}
+
+
+
+
+	// ---------------------------------------------------------------------------------------------------
+	//
+	//   Conversions
+	//
+	// ---------------------------------------------------------------------------------------------------
 
 	// template <typename std::enable_if_t<is_vector<T>::value, T> >
 	template <class T>
@@ -954,24 +1001,6 @@ namespace syaml {
 		auto dash = [&ss, &lastWasDash]() { if (!lastWasDash) { lastWasDash = true; ss << "- "; } };
 
 		if (auto d = dynamic_cast<DictNode*>(node)) {
-			/*
-			for (auto kv : d->children) {
-				auto key = kv.first;
-				auto child = kv.second;
-				indent(depth);
-				ss << key << ":";
-				lastWasNl = false;
-				if (auto cd = dynamic_cast<DictNode*>(child)) {
-					newline();
-					serialize_(ss, cd, depth+1, lastWasNl);
-				} else {
-					ss << " ";
-					serialize_(ss, child, depth+1, lastWasNl);
-				}
-				newline();
-			}
-			*/
-
 			newline();
 			for (auto kv : d->children) {
 				auto key = kv.first;
@@ -1016,6 +1045,9 @@ namespace syaml {
 			lastWasDash = lastWasNl = false;
 			// std::cout << " - tokrange is " << s->tokRange.start << " -> " << s->tokRange.end <<"\n";
 			// ss << s->tdoc->doc->getRangeString(SourceRange{node->tdoc->tokens[s->tokRange.start].start, node->tdoc->tokens[s->tokRange.start].end});
+		} else if (auto s = dynamic_cast<EmptyNode*>(node)) {
+			ss << " ";
+			lastWasDash = lastWasNl = false;
 		} else {
 			assert(false);
 		}
