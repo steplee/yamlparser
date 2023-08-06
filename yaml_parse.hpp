@@ -31,23 +31,24 @@ namespace syaml {
 
 #ifdef SYAML_IMPL
     namespace {
-        void format_(std::ostream& os) { }
+        void format_(std::ostream& os) {
+        }
         template <class T, class... Ts> void format_(std::ostream& os, T t, Ts... ts) {
             os << t;
             format_(os, ts...);
         }
     }
-#define syamlAssert(cond, ...)                                                                                         \
-    if (!(cond)) {                                                                                                     \
-        std::stringstream ss;                                                                                          \
-        format_(ss, ##__VA_ARGS__);                                                                                    \
-        throw std::runtime_error(ss.str());                                                                            \
+#define syamlAssert(cond, ...)                                                                             \
+    if (!(cond)) {                                                                                         \
+        std::stringstream ss;                                                                              \
+        format_(ss, ##__VA_ARGS__);                                                                        \
+        throw std::runtime_error(ss.str());                                                                \
     }
-#define syamlWarn(cond, ...)                                                                                           \
-    if (!(cond)) {                                                                                                     \
-        std::stringstream ss;                                                                                          \
-        format_(ss, ##__VA_ARGS__);                                                                                    \
-        std::cout << (ss.str()) << "\n";                                                                               \
+#define syamlWarn(cond, ...)                                                                               \
+    if (!(cond)) {                                                                                         \
+        std::stringstream ss;                                                                              \
+        format_(ss, ##__VA_ARGS__);                                                                        \
+        std::cout << (ss.str()) << "\n";                                                                   \
     }
 #endif
 
@@ -64,14 +65,16 @@ namespace syaml {
     //          - For dict nodes, only use `as<T>()` with T an unordered map.
     //          - For list nodes, only use `as<T>()` with T a vector.
     //
-    // NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general, prefer using strings with
-    // quotes.
+    // NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general,
+    // prefer using strings with quotes.
     //
     // NOTE: Lots of inefficiencies such as:
-    //				copying string keys rather than using `string_view`s into the document string.
-    //				extraneous copying of nodes (the UPtrs result in lots of short lived objects).
+    //				copying string keys rather than using `string_view`s into the document
+    // string. 				extraneous copying of nodes (the UPtrs result in lots of short
+    // lived objects).
     //
-    // FIXME: This implementation fails the tests from serialized pyyaml outputs because it does not support:
+    // FIXME: This implementation fails the tests from serialized pyyaml outputs because it does not
+    // support:
     //          1) Parsing multiple layers of lists on one line, for example: ' - - 1'
     //          2) Lexing/parsing maps using the '{ ... }' syntax.
     //
@@ -106,9 +109,9 @@ namespace syaml {
         static constexpr bool value = false;
     };
     template <typename T>
-    struct is_vector<T,
-                     typename std::enable_if<std::is_same<
-                         T, std::vector<typename T::value_type, typename T::allocator_type>>::value>::type> {
+    struct is_vector<
+        T, typename std::enable_if<std::is_same<
+               T, std::vector<typename T::value_type, typename T::allocator_type>>::value>::type> {
         static const bool value = true;
     };
 
@@ -116,9 +119,9 @@ namespace syaml {
         static constexpr bool value = false;
     };
     template <typename T>
-    struct is_map<T,
-                  typename std::enable_if<std::is_same<
-                      T, std::unordered_map<typename T::value_type, typename T::mapped_type>>::value>::type> {
+    struct is_map<
+        T, typename std::enable_if<std::is_same<
+               T, std::unordered_map<typename T::value_type, typename T::mapped_type>>::value>::type> {
         static const bool value = true;
     };
 
@@ -126,17 +129,18 @@ namespace syaml {
         static constexpr bool value = false;
     };
     template <typename T>
-    struct is_decodable<T,
-                        typename std::enable_if<Decode<T>::value
-                                                // WARNING: This is broken.
-                                                // FIXME: Why?
-                                                // Decode<T>::use_dict | Decode<T>::use_dict | Decode<T>::use_scalar
-                                                >::type> {
+    struct is_decodable<T, typename std::enable_if<Decode<T>::value
+                                                   // WARNING: This is broken.
+                                                   // FIXME: Why?
+                                                   // Decode<T>::use_dict | Decode<T>::use_dict |
+                                                   // Decode<T>::use_scalar
+                                                   >::type> {
         static const bool value = true;
     };
 
     // Non vector/map/decodable
-    template <class T> using is_scalar = std::negation<std::disjunction<is_vector<T>, is_map<T>, is_decodable<T>>>;
+    template <class T>
+    using is_scalar = std::negation<std::disjunction<is_vector<T>, is_map<T>, is_decodable<T>>>;
     // using is_scalar    = std::disjunction<std::is_same<T,std::string>, std::is_fundamental<T>>;
 
     // ---------------------------------------------------------------------------------------------------
@@ -155,7 +159,8 @@ namespace syaml {
         std::string src;
 
         inline Document(const std::string& s)
-            : src(s) { }
+            : src(s) {
+        }
 
         const std::string getRangeString(const SourceRange& rng) const;
         const std::stringstream getRangeStream(const SourceRange& rng) const;
@@ -183,8 +188,12 @@ namespace syaml {
         uint32_t start;
         uint32_t end;
 
-        inline bool operator==(const Lexeme& l) const { return lexeme == l; }
-        inline bool operator!=(const Lexeme& l) const { return lexeme != l; }
+        inline bool operator==(const Lexeme& l) const {
+            return lexeme == l;
+        }
+        inline bool operator!=(const Lexeme& l) const {
+            return lexeme != l;
+        }
 
         inline void print(std::ostream& os, const Document& doc) {
             if (lexeme == eNL) {
@@ -216,10 +225,16 @@ namespace syaml {
     struct TokenizedDoc {
         Document* doc;
         std::vector<Tok> tokens;
-        inline ConstTok& operator[](uint32_t i) const { return tokens[i]; }
-        inline uint32_t size() const { return tokens.size(); }
+        inline ConstTok& operator[](uint32_t i) const {
+            return tokens[i];
+        }
+        inline uint32_t size() const {
+            return tokens.size();
+        }
 
-        inline const std::string getTokenString(ConstTok& t) const { return doc->getRangeString({ t.start, t.end }); }
+        inline const std::string getTokenString(ConstTok& t) const {
+            return doc->getRangeString({ t.start, t.end });
+        }
         inline const std::stringstream getTokenStream(ConstTok& t) const {
             return doc->getRangeStream({ t.start, t.end });
         }
@@ -237,8 +252,12 @@ namespace syaml {
         }
     };
 
-    static inline bool is_alpha(char c) { return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z'); }
-    static inline bool is_numer(char c) { return c >= '0' and c <= '9'; }
+    static inline bool is_alpha(char c) {
+        return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z');
+    }
+    static inline bool is_numer(char c) {
+        return c >= '0' and c <= '9';
+    }
 
     inline TokenizedDoc lex(Document* doc) {
         TokenizedDoc out;
@@ -255,8 +274,7 @@ namespace syaml {
 
             // Comment
             if (s[i] == '#') {
-                while (i < N and s[i] != '\n')
-                    i++;
+                while (i < N and s[i] != '\n') i++;
                 continue;
             }
 
@@ -283,14 +301,13 @@ namespace syaml {
 
             // Ident
             else if (is_alpha(s[i])) {
-                while (i < N and (is_alpha(s[i]) or is_numer(s[i]))) {
-                    i++;
-                }
+                while (i < N and (is_alpha(s[i]) or is_numer(s[i]))) { i++; }
                 ts.push_back(Tok { Tok::eIdent, n, i0, i });
             }
 
             // Single dash
-            else if (s[i] == '-' and (i >= s.length() or s[i + 1] == ' ' or s[i + 1] == '\n' or s[i + 1] == '\t')) {
+            else if (s[i] == '-'
+                     and (i >= s.length() or s[i + 1] == ' ' or s[i + 1] == '\n' or s[i + 1] == '\t')) {
                 ts.push_back(Tok { Tok::eDash, n, i0, ++i });
             }
 
@@ -364,7 +381,8 @@ namespace syaml {
         inline Node(TokenizedDoc* tdoc, SourceRange tokRange)
             : parent(nullptr)
             , tdoc(tdoc)
-            , tokRange(tokRange) { }
+            , tokRange(tokRange) {
+        }
 
         inline virtual ~Node() {};
 
@@ -380,19 +398,20 @@ namespace syaml {
 
         friend class Parser;
         friend class Serialization;
-        friend class RootNode; // why is this neeeded.
-        friend class ListNode; // why is this neeeded.
+        friend class RootNode;   // why is this neeeded.
+        friend class ListNode;   // why is this neeeded.
         friend class ScalarNode; // why is this neeeded.
-        friend class DictNode; // why is this neeeded.
+        friend class DictNode;   // why is this neeeded.
 
         bool isEmpty() const;
 
         // protected:
     public:
-        // template <class T, class TV=typename T::value_type> std::enable_if_t<is_vector<TV>::value, T>
-        // as_(Opt<std::vector<T>> def) const;
+        // template <class T, class TV=typename T::value_type>
+        // std::enable_if_t<is_vector<TV>::value, T> as_(Opt<std::vector<T>> def) const;
         template <class T> std::enable_if_t<is_vector<T>::value, T> as_(Opt<T> def) const;
-        // template <class T, class TV> std::enable_if_t<is_map   <TV>::value, T>    as_(Opt<Map<T>> def) const;
+        // template <class T, class TV> std::enable_if_t<is_map   <TV>::value, T>    as_(Opt<Map<T>>
+        // def) const;
         template <class T> std::enable_if_t<is_map<T>::value, T> as_(Opt<T> def) const;
         template <class T> std::enable_if_t<is_scalar<T>::value, T> as_(Opt<T> def) const;
         template <class T> std::enable_if_t<is_decodable<T>::value, T> as_(Opt<T> def) const;
@@ -418,7 +437,8 @@ namespace syaml {
 
     struct EmptyNode : public Node {
         using Node::Node;
-        inline virtual ~EmptyNode() { }
+        inline virtual ~EmptyNode() {
+        }
 
         virtual Node* get_(const char* k) const override;
         virtual Node* get_(uint32_t k) const override;
@@ -438,12 +458,12 @@ namespace syaml {
 
         template <class V> inline std::vector<V> toVector() const {
             std::vector<V> out;
-            for (auto& child : children) {
-                out.push_back(child->as_<V>({}));
-            }
+            for (auto& child : children) { out.push_back(child->as_<V>({})); }
             return out;
         }
-        inline bool isFromDash() const { return fromDash; }
+        inline bool isFromDash() const {
+            return fromDash;
+        }
     };
 
     struct DictNode : public Node {
@@ -463,9 +483,7 @@ namespace syaml {
 
         template <class V> inline Map<V> toMap() const {
             Map<V> out;
-            for (auto& kv : children) {
-                out[kv.first] = kv.second->as_<V>({});
-            }
+            for (auto& kv : children) { out[kv.first] = kv.second->as_<V>({}); }
             return out;
         }
     };
@@ -479,9 +497,13 @@ namespace syaml {
 
         virtual ~RootNode();
 
-        inline EmptyNode* getEmptySentinel() { return sentinel; }
+        inline EmptyNode* getEmptySentinel() {
+            return sentinel;
+        }
 
-        inline std::unique_lock<std::mutex> guard() { return std::unique_lock<std::mutex>(mtx); }
+        inline std::unique_lock<std::mutex> guard() {
+            return std::unique_lock<std::mutex>(mtx);
+        }
 
         EmptyNode* sentinel;
     };
@@ -577,14 +599,16 @@ namespace syaml {
     // template <typename std::enable_if_t<std::is_integral<T>::value, T> >
     template <class T> inline std::enable_if_t<is_scalar<T>::value, T> Node::as_(Opt<T> def) const {
         const ScalarNode* asScalar = dynamic_cast<const ScalarNode*>(this);
-        simpleAssert(asScalar != nullptr && "Node.as<T> called on non-ScalarNode (with T not in {vector,map})");
+        simpleAssert(asScalar != nullptr
+                     && "Node.as<T> called on non-ScalarNode (with T not in {vector,map})");
 
         return asScalar->toScalar<T>();
     }
 
     template <class T> inline std::enable_if_t<is_decodable<T>::value, T> Node::as_(Opt<T> def) const {
 
-        // TODO: Would be nicer to allow any combination, based on dynamic_cast(this) and on `use_dict` etc.
+        // TODO: Would be nicer to allow any combination, based on dynamic_cast(this) and on
+        // `use_dict` etc.
 
         if constexpr (Decode<T>::use_dict) {
             auto asDict = dynamic_cast<const DictNode*>(this);
@@ -627,10 +651,8 @@ namespace syaml {
         int s = i;
         // int e = i+1;
         int e = i;
-        while (s >= 0 and src[s] != '\n')
-            s--;
-        while (e < src.length() and src[e] != '\n')
-            e++;
+        while (s >= 0 and src[s] != '\n') s--;
+        while (e < src.length() and src[e] != '\n') e++;
         // if (src[e]=='\n') e--;
         // if (o == 0) return std::string_view{src}.substr(s,e);
         if (o == 0) return src.substr(s + 1, e - s - 1);
@@ -641,8 +663,7 @@ namespace syaml {
         std::vector<std::pair<uint32_t, std::string>> out(N);
         for (int o = 0; o < N; o++) {
             uint32_t nl = 0;
-            for (int j = 0; j < i; j++)
-                nl += src[j] == '\n';
+            for (int j = 0; j < i; j++) nl += src[j] == '\n';
             out[o] = { nl + o - 1, findLineAround(i, o - 1) };
         }
         return out;
@@ -657,14 +678,15 @@ namespace syaml {
     RootNode::RootNode(DictNode&& o)
         : DictNode(o.tdoc, o.tokRange) {
         children = std::move(o.children);
-        for (auto kv : children)
-            kv.second->parent = this; // dont forget this.
+        for (auto kv : children) kv.second->parent = this; // dont forget this.
         parent           = o.parent;
         sentinel         = new EmptyNode(tdoc, { 0, 0 });
         sentinel->parent = this;
     }
 
-    RootNode::~RootNode() { delete sentinel; }
+    RootNode::~RootNode() {
+        delete sentinel;
+    }
 
     Node* ScalarNode::get_(const char* k) const {
         syamlAssert(false, "ScalarNode.get(str) called.");
@@ -675,22 +697,26 @@ namespace syaml {
         return 0;
     }
 
-    Node* EmptyNode::get_(const char* k) const { syamlAssert(false, "EmptyNode.get(str) called."); }
-    Node* EmptyNode::get_(uint32_t k) const { syamlAssert(false, "EmptyNode.get(int)"); }
+    Node* EmptyNode::get_(const char* k) const {
+        syamlAssert(false, "EmptyNode.get(str) called.");
+    }
+    Node* EmptyNode::get_(uint32_t k) const {
+        syamlAssert(false, "EmptyNode.get(int)");
+    }
 
     inline Node* ListNode::get_(const char* k) const {
         syamlAssert(false, "ListNode.get(str) called.");
         return 0;
     }
     inline Node* ListNode::get_(uint32_t k) const {
-        // syamlAssert(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {}, have {} children)",
-        // k, children.size()); syamlWarn(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {},
-        // have {} children)", k, children.size());
+        // syamlAssert(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {},
+        // have {} children)", k, children.size()); syamlWarn(k >= 0 and k < children.size(),
+        // "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
         if (k >= 0 and k < children.size()) {
             return children[k];
         } else {
-            syamlWarn(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k,
-                      children.size());
+            syamlWarn(k >= 0 and k < children.size(),
+                      "ListNode.get(int) out-of-bounds (asked {}, have {} children)", k, children.size());
             return getRoot()->getEmptySentinel();
         }
     }
@@ -706,11 +732,12 @@ namespace syaml {
         }
 
         if (it == children.end()) {
-            syamlWarn(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)", k, children.size());
+            syamlWarn(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)", k,
+                      children.size());
             return getRoot()->getEmptySentinel();
         }
-        // syamlAssert(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)", k,
-        // children.size());
+        // syamlAssert(it != children.end(), "DictNode.get(k) key not found ({}, have {} children)",
+        // k, children.size());
 
         return it->second;
     }
@@ -719,7 +746,9 @@ namespace syaml {
         return 0;
     }
 
-    bool Node::isEmpty() const { return dynamic_cast<const EmptyNode*>(this) != nullptr; }
+    bool Node::isEmpty() const {
+        return dynamic_cast<const EmptyNode*>(this) != nullptr;
+    }
 
     struct ParserGuard {
         uint32_t I0;
@@ -729,12 +758,16 @@ namespace syaml {
         inline ~ParserGuard() {
             if (!terminated) throw std::runtime_error("unterminated ParserGuard");
         }
-        inline void accept() { terminated = true; }
+        inline void accept() {
+            terminated = true;
+        }
         inline void reject() {
             terminated = true;
             parser->I  = I0;
         }
-        inline SourceRange currentRange() const { return SourceRange { I0, parser->I }; }
+        inline SourceRange currentRange() const {
+            return SourceRange { I0, parser->I };
+        }
     };
 
     ParserGuard::ParserGuard(Parser* parser)
@@ -742,14 +775,19 @@ namespace syaml {
         I0 = parser->I;
     }
 
-    ConstTok& Parser::peek() { return (*tdoc)[I]; }
-    ConstTok& Parser::advance() { return (*tdoc)[I++]; }
+    ConstTok& Parser::peek() {
+        return (*tdoc)[I];
+    }
+    ConstTok& Parser::advance() {
+        return (*tdoc)[I++];
+    }
     bool Parser::eof() {
         syamlAssert(I <= tdoc->size());
         return peek() == Tok::eEOF;
     }
 
-    Parser::~Parser() { }
+    Parser::~Parser() {
+    }
 
     RootNode* Parser::parse(TokenizedDoc* tdoc_) {
         tdoc            = tdoc_;
@@ -778,8 +816,7 @@ namespace syaml {
                 std::cout << tab << KBLU << lineNo << KNRM "| " << KWHT << lines[i].second << KNRM "\n";
                 if (i == lines.size() / 2) {
                     std::cout << tab << "      ";
-                    for (int i = 0; i < off; i++)
-                        std::cout << " ";
+                    for (int i = 0; i < off; i++) std::cout << " ";
                     std::cout << KYEL "^" KNRM "\n";
                 }
             }
@@ -792,8 +829,7 @@ namespace syaml {
         try {
 
             Tok cur = peek();
-            while (cur == Tok::eWhitespace)
-                cur = advance();
+            while (cur == Tok::eWhitespace) cur = advance();
 
             if (eof()) { throw std::runtime_error("tried scalar, but is eof"); }
 
@@ -804,7 +840,6 @@ namespace syaml {
                 ScalarNode* newNode = new ScalarNode(tdoc, pg.currentRange());
                 return pg.accept(), newNode;
             }
-
         } catch (std::runtime_error& e) {
             std::cout << " - In tryScalar(), starting here:\n";
             print_line_debug(tdoc, pg.I0);
@@ -823,8 +858,7 @@ namespace syaml {
 
         try {
 
-            while (peek() == Tok::eWhitespace)
-                advance();
+            while (peek() == Tok::eWhitespace) advance();
 
             Tok open = advance();
             if (open != Tok::eOpenBrace) return pg.reject(), nullptr;
@@ -833,10 +867,8 @@ namespace syaml {
 
             while (!eof()) {
                 while (peek() == Tok::eWhitespace or peek() == Tok::eNL) {
-                    while (peek() == Tok::eWhitespace)
-                        advance();
-                    while (peek() == Tok::eNL)
-                        advance();
+                    while (peek() == Tok::eWhitespace) advance();
+                    while (peek() == Tok::eNL) advance();
                 }
                 Tok cur = peek();
                 if (eof()) { throw std::runtime_error("inside list, should've parsed something, got eof"); }
@@ -854,7 +886,8 @@ namespace syaml {
                     std::stringstream ss;
                     cur = peek();
                     cur.print(ss, *tdoc->doc);
-                    printf("inside list, should've parsed list or scalar, peek() is %s\n", ss.str().c_str());
+                    printf("inside list, should've parsed list or scalar, peek() is %s\n",
+                           ss.str().c_str());
                     throw std::runtime_error("inside list, should've parsed list or scalar");
                 }
 
@@ -870,7 +903,6 @@ namespace syaml {
                     throw std::runtime_error("inside list, should've parsed comma or ending ']'");
                 }
             }
-
         } catch (std::runtime_error& e) {
             std::cout << " - In tryList(), starting here:\n";
             print_line_debug(tdoc, pg.I0);
@@ -880,10 +912,8 @@ namespace syaml {
 
         ListNode* newNode = new ListNode(tdoc, pg.currentRange());
 
-        for (auto& c : cs)
-            newNode->children.push_back(c.release());
-        for (auto& c : newNode->children)
-            c->parent = newNode;
+        for (auto& c : cs) newNode->children.push_back(c.release());
+        for (auto& c : newNode->children) c->parent = newNode;
         printf("return list with nitems=%zu\n", cs.size());
 
         return pg.accept(), newNode;
@@ -927,13 +957,13 @@ namespace syaml {
                 }
                 if (eof()) break;
 
-                printf(" - peek() '%s': this indent=%d, expected indent=%d\n", tdoc->getTokenString(peek()).c_str(),
-                       thisIndent, indent);
+                printf(" - peek() '%s': this indent=%d, expected indent=%d\n",
+                       tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
                 if (thisIndent < indent) {
                     printf(" - exiting tryListFromDash because indent was %d < %d\n", thisIndent, indent);
 
-                    // NOTE: This is really tricky: if we fail on this indent, we must **rewind back to newline**
-                    // if (thisIndent) I -= 1;
+                    // NOTE: This is really tricky: if we fail on this indent, we must **rewind back
+                    // to newline** if (thisIndent) I -= 1;
                     I = savedI;
 
                     break;
@@ -947,8 +977,8 @@ namespace syaml {
                     if (!next) next = tryDict();
 
                     if (!next) {
-                        throw std::runtime_error(
-                            "inside dashList with indent > expected, should've parsed list or dict");
+                        throw std::runtime_error("inside dashList with indent > expected, "
+                                                 "should've parsed list or dict");
                     }
                     cs.push_back(NodeUPtr { next });
                     continue;
@@ -963,9 +993,10 @@ namespace syaml {
                 }
 
                 Tok cur = peek();
-                while (peek() == Tok::eWhitespace)
-                    cur = advance();
-                if (eof()) { throw std::runtime_error("inside dashList, should've parsed something, got eof"); }
+                while (peek() == Tok::eWhitespace) cur = advance();
+                if (eof()) {
+                    throw std::runtime_error("inside dashList, should've parsed something, got eof");
+                }
 
                 if (cur == Tok::eCloseBrace) {
                     advance();
@@ -984,7 +1015,6 @@ namespace syaml {
 
                 // throw std::runtime_error("nothing parse in inner dict");
             }
-
         } catch (std::runtime_error& e) {
             std::cout << " - In tryListFromDash(), starting here:\n";
             print_line_debug(tdoc, pg.I0);
@@ -995,10 +1025,8 @@ namespace syaml {
         ListNode* newNode = new ListNode(tdoc, pg.currentRange());
         newNode->fromDash = true;
 
-        for (auto& c : cs)
-            newNode->children.push_back(c.release());
-        for (auto& c : newNode->children)
-            c->parent = newNode;
+        for (auto& c : cs) newNode->children.push_back(c.release());
+        for (auto& c : newNode->children) c->parent = newNode;
         printf("return list with nitems=%zu\n", cs.size());
 
         return pg.accept(), newNode;
@@ -1006,15 +1034,13 @@ namespace syaml {
 
     void Parser::skipUntilNonEmptyLine() {
         // Go from current position to end of line. If we see any non whitespace, stop.
-        while (peek() == Tok::eWhitespace)
-            advance();
+        while (peek() == Tok::eWhitespace) advance();
         // Do the skipping process
         int rollback = I;
         while (peek() == Tok::eNL) {
             advance();
             rollback = I;
-            while (peek() == Tok::eWhitespace)
-                advance();
+            while (peek() == Tok::eWhitespace) advance();
         }
         I = rollback;
     }
@@ -1055,13 +1081,13 @@ namespace syaml {
                     advance();
                     if (peek() == Tok::eWhitespace) { thisIndent = advance().n; }
                 }
-                printf(" - next key '%s': this indent=%d, expected indent=%d\n", tdoc->getTokenString(peek()).c_str(),
-                       thisIndent, indent);
+                printf(" - next key '%s': this indent=%d, expected indent=%d\n",
+                       tdoc->getTokenString(peek()).c_str(), thisIndent, indent);
                 if (thisIndent < indent) {
                     printf(" - exiting tryDict because indent was %d < %d\n", thisIndent, indent);
 
-                    // NOTE: This is really tricky: if we fail on this indent, we must **rewind back to newline**
-                    // if (thisIndent) I -= 1;
+                    // NOTE: This is really tricky: if we fail on this indent, we must **rewind back
+                    // to newline** if (thisIndent) I -= 1;
                     I = savedI;
 
                     break;
@@ -1080,9 +1106,7 @@ namespace syaml {
                     return pg.reject(), nullptr;
                 }
 
-                while (peek() == Tok::eWhitespace) {
-                    advance();
-                }
+                while (peek() == Tok::eWhitespace) { advance(); }
 
                 if (eof()) { throw std::runtime_error("nope"); }
 
@@ -1093,15 +1117,12 @@ namespace syaml {
                     // advance();
                     Node* innerList = tryList();
                     if (innerList) {
-                        while (peek() == Tok::eWhitespace) {
-                            advance();
-                        }
-                        while (peek() == Tok::eNL) {
-                            advance();
-                        }
+                        while (peek() == Tok::eWhitespace) { advance(); }
+                        while (peek() == Tok::eNL) { advance(); }
                         cs.push_back({ tdoc->getTokenString(keyTok), NodeUPtr { innerList } });
                     } else
-                        throw std::runtime_error("looked like a list inside a map, but failed to parse the inner list");
+                        throw std::runtime_error(
+                            "looked like a list inside a map, but failed to parse the inner list");
                     continue;
                 }
 
@@ -1115,56 +1136,54 @@ namespace syaml {
                         cur = peek();
                     }
 
-                    // For the inner dict/list, check that the indentation lines up (yes: must do this here and not the
-                    // recursive call)
+                    // For the inner dict/list, check that the indentation lines up (yes: must do
+                    // this here and not the recursive call)
                     int innerIndent = 0;
                     if (peek() == Tok::eWhitespace) {
                         innerIndent = peek().n;
                         advance();
                     }
                     if (innerIndent <= indent) {
-                        printf(
-                            "in tryDict(), innerIndent %d <= indent %d. This must mean that the current item '%s' is "
-                            "empty.\n",
-                            innerIndent, indent, tdoc->getTokenString(keyTok).c_str());
+                        printf("in tryDict(), innerIndent %d <= indent %d. This must mean that the "
+                               "current item '%s' is "
+                               "empty.\n",
+                               innerIndent, indent, tdoc->getTokenString(keyTok).c_str());
                         cs.push_back({ tdoc->getTokenString(keyTok),
                                        NodeUPtr { new EmptyNode(tdoc, lookahead_pg.currentRange()) } });
                         lookahead_pg.reject();
                         continue;
                     }
 
-                    // NOTE: Always reject `lookahead_pg` because tryDict/tryListFromDash wants the whitespace to
-                    // process itself.
+                    // NOTE: Always reject `lookahead_pg` because tryDict/tryListFromDash wants the
+                    // whitespace to process itself.
 
                     // We MUST be starting a new list
                     if (peek() == Tok::eDash) {
                         // lookahead_pg.accept();
                         lookahead_pg.reject();
 
-                        while (peek() == Tok::eWhitespace)
-                            advance();
+                        while (peek() == Tok::eWhitespace) advance();
 
                         Node* innerList = tryListFromDash();
                         if (innerList) {
                             cs.push_back({ tdoc->getTokenString(keyTok), NodeUPtr { innerList } });
                         } else
-                            throw std::runtime_error(
-                                "looked like a list (from dash) inside a map, but failed to parse the inner list");
+                            throw std::runtime_error("looked like a list (from dash) inside a map, "
+                                                     "but failed to parse the inner list");
                         continue;
                     }
 
                     lookahead_pg.reject();
                     {
                         // We MUST be starting a new map
-                        while (peek() == Tok::eNL)
-                            advance();
+                        while (peek() == Tok::eNL) advance();
 
                         Node* innerDict = tryDict();
                         if (innerDict) {
                             cs.push_back({ tdoc->getTokenString(keyTok), NodeUPtr { innerDict } });
                         } else
-                            throw std::runtime_error(
-                                "looked like a map inside a map, but failed to parse the inner one");
+                            throw std::runtime_error("looked like a map inside a map, but failed "
+                                                     "to parse the inner one");
                         continue;
                     }
                 }
@@ -1172,20 +1191,16 @@ namespace syaml {
                 // We MUST be starting a scalar
                 Node* innerScalar = tryScalar();
                 if (innerScalar) {
-                    while (peek() == Tok::eWhitespace) {
-                        advance();
-                    }
-                    while (peek() == Tok::eNL) {
-                        advance();
-                    }
+                    while (peek() == Tok::eWhitespace) { advance(); }
+                    while (peek() == Tok::eNL) { advance(); }
                     cs.push_back({ tdoc->getTokenString(keyTok), NodeUPtr { innerScalar } });
                     continue;
                 } else
-                    throw std::runtime_error("looked like a scalar inside a map, but failed to parse the inner scalar");
+                    throw std::runtime_error(
+                        "looked like a scalar inside a map, but failed to parse the inner scalar");
 
                 throw std::runtime_error("nothing parse in inner dict");
             }
-
         } catch (std::runtime_error& e) {
             std::cout << " - In tryDict(), starting here:\n";
             print_line_debug(tdoc, pg.I0);
@@ -1196,30 +1211,27 @@ namespace syaml {
         if (cs.size()) {
             DictNode* newNode = new DictNode(tdoc, pg.currentRange());
             if constexpr (is_vector<decltype(newNode->children)>::value) {
-                for (auto& kv : cs)
-                    newNode->children.push_back({ kv.first, kv.second.release() });
+                for (auto& kv : cs) newNode->children.push_back({ kv.first, kv.second.release() });
             } else {
                 // for (auto& kv : cs) newNode->children[kv.first] = kv.second.release();
                 syamlAssert(false);
             }
-            for (auto& kv : newNode->children)
-                kv.second->parent = newNode;
+            for (auto& kv : newNode->children) kv.second->parent = newNode;
             return pg.accept(), newNode;
         } else
             return pg.reject(), nullptr;
     }
 
     ListNode::~ListNode() {
-        for (auto c : children)
-            delete c;
+        for (auto c : children) delete c;
         children.clear();
     }
     DictNode::~DictNode() {
-        for (auto kv : children)
-            delete kv.second;
+        for (auto kv : children) delete kv.second;
         children.clear();
     }
-    ScalarNode::~ScalarNode() { }
+    ScalarNode::~ScalarNode() {
+    }
 
     DictNode* Node::asDict() {
         auto out = dynamic_cast<DictNode*>(this);
@@ -1239,8 +1251,7 @@ namespace syaml {
 
     RootNode* Node::getRoot() const {
         Node* node = const_cast<Node*>(this);
-        while (node->parent)
-            node = node->parent;
+        while (node->parent) node = node->parent;
         RootNode* root = dynamic_cast<RootNode*>(node);
         syamlAssert(root != nullptr, "getRoot() failed");
         return root;
@@ -1262,8 +1273,7 @@ namespace syaml {
         void Serialization::serialize_(Node* node, int depth) {
 
             auto indent = [this](int depth) {
-                for (int i = 0; i < depth * 4; i++)
-                    ss << " ";
+                for (int i = 0; i < depth * 4; i++) ss << " ";
             };
             auto newline = [this]() {
                 if (!lastWasNl) {
@@ -1292,7 +1302,6 @@ namespace syaml {
                     serialize_(child, depth + 1);
                     newline();
                 }
-
             } else if (auto l = dynamic_cast<ListNode*>(node)) {
 
                 if (!l->isFromDash()) {
@@ -1319,12 +1328,12 @@ namespace syaml {
                         lastWasDash = false;
                     }
                 }
-
             } else if (auto s = dynamic_cast<ScalarNode*>(node)) {
                 ss << s->tdoc->getTokenRangeString(s->tokRange);
                 lastWasDash = lastWasNl = false;
-                // std::cout << " - tokrange is " << s->tokRange.start << " -> " << s->tokRange.end <<"\n";
-                // ss << s->tdoc->doc->getRangeString(SourceRange{node->tdoc->tokens[s->tokRange.start].start,
+                // std::cout << " - tokrange is " << s->tokRange.start << " -> " << s->tokRange.end
+                // <<"\n"; ss <<
+                // s->tdoc->doc->getRangeString(SourceRange{node->tdoc->tokens[s->tokRange.start].start,
                 // node->tdoc->tokens[s->tokRange.start].end});
             } else if (auto s = dynamic_cast<EmptyNode*>(node)) {
                 ss << " ";
