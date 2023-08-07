@@ -15,38 +15,38 @@
 #include <sstream>
 #include <type_traits>
 
-    //
-    // A simple YAML-like recursive descent parser.
-    // Did not read the spec at all while writing this, so don't expect it to recognize valid YAML
-    //
-    //      o You access children nodes with the `get` function, which has two overloads:
-    //          - Only use the `get(int)` key on list nodes.
-    //          - Only use the `get(const char*)` key on dict nodes.
-    //          - Never use `get` on a scalar node.
-    //      o You get unwrapped data out by using the `as` template function. It has three usages:
-    //          - For scalar nodes, only use `as<T>()` with T a fundamental type or a string.
-    //          - For dict nodes, only use `as<T>()` with T an unordered map.
-    //          - For list nodes, only use `as<T>()` with T a vector.
-    //
-    // NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general,
-    // prefer using strings with quotes.
-    //
-    // NOTE: Lots of inefficiencies such as:
-    //				copying string keys rather than using `string_view`s into the document
-    // string. 				extraneous copying of nodes (the UPtrs result in lots of short
-    // lived objects).
-    //
-    // FIXME: This implementation fails the tests from serialized pyyaml outputs because it does not
-    // support:
-    //          1) Parsing multiple layers of lists on one line, for example: ' - - 1'
-    //          2) Lexing/parsing maps using the '{ ... }' syntax.
-	//
-	// NOTE: Adding a set() method made the code a little incoherent because originally I thought to tie values
-	//       to ranges of the document's source string.
-	//       With set() however, there is no longer any fixed relationship to the document.
-	//       So I handled that by having every node have a string. It is empty if the node corresponds to one from the document.
-	//       Otherwise it is the textual representation of the value passed to set()
-    //
+//
+// A simple YAML-like recursive descent parser.
+// Did not read the spec at all while writing this, so don't expect it to recognize valid YAML
+//
+//      o You access children nodes with the `get` function, which has two overloads:
+//          - Only use the `get(int)` key on list nodes.
+//          - Only use the `get(const char*)` key on dict nodes.
+//          - Never use `get` on a scalar node.
+//      o You get unwrapped data out by using the `as` template function. It has three usages:
+//          - For scalar nodes, only use `as<T>()` with T a fundamental type or a string.
+//          - For dict nodes, only use `as<T>()` with T an unordered map.
+//          - For list nodes, only use `as<T>()` with T a vector.
+//
+// NOTE: `tryScalar()` accepts 'ident' tokens, which is useful for 'true', but in general,
+// prefer using strings with quotes.
+//
+// NOTE: Lots of inefficiencies such as:
+//				copying string keys rather than using `string_view`s into the document
+// string. 				extraneous copying of nodes (the UPtrs result in lots of short
+// lived objects).
+//
+// FIXME: This implementation fails the tests from serialized pyyaml outputs because it does not
+// support:
+//          1) Parsing multiple layers of lists on one line, for example: ' - - 1'
+//          2) Lexing/parsing maps using the '{ ... }' syntax.
+//
+// NOTE: Adding a set() method made the code a little incoherent because originally I thought to tie values
+//       to ranges of the document's source string.
+//       With set() however, there is no longer any fixed relationship to the document.
+//       So I handled that by having every node have a string. It is empty if the node corresponds to one
+//       from the document. Otherwise it is the textual representation of the value passed to set()
+//
 
 namespace syaml {
 
@@ -100,7 +100,6 @@ namespace syaml {
         std::cout << (ss.str()) << "\n";                                                                   \
     }
 #endif
-
 
     template <class T> struct Decode {
         static constexpr bool use_dict   = false;
@@ -185,7 +184,7 @@ namespace syaml {
             : src(s) {
         }
 
-        const std::string getRangeString(SourceRange rng, bool trimQuotes=false) const;
+        const std::string getRangeString(SourceRange rng, bool trimQuotes = false) const;
         const std::stringstream getRangeStream(const SourceRange& rng) const;
         std::string findLineAround(int i, int o) const;
         std::vector<std::pair<uint32_t, std::string>> linesAround(int i, int N = 3) const;
@@ -261,7 +260,7 @@ namespace syaml {
         inline const std::stringstream getTokenStream(ConstTok& t) const {
             return doc->getRangeStream({ t.start, t.end });
         }
-        inline const std::string getTokenRangeString(const SourceRange& ts, bool trimQuotes=false) const {
+        inline const std::string getTokenRangeString(const SourceRange& ts, bool trimQuotes = false) const {
             const auto& l = tokens[ts.start];
             // const auto& r = tokens[ts.end    ];
             const auto& r = tokens[ts.end - 1];
@@ -401,27 +400,27 @@ namespace syaml {
     struct Node {
 
     public:
-
-		// From parsed document
+        // From parsed document
         inline Node(TokenizedDoc* tdoc, SourceRange tokRange)
             : parent(nullptr)
             , tdoc(tdoc)
             , tokRange(tokRange) {
         }
 
-		// From dynamic set() call
+        // From dynamic set() call
         inline Node(const std::string& valueStr)
             : parent(nullptr)
             , tdoc(nullptr)
-            , tokRange({}),
-			valueStr(valueStr) {}
+            , tokRange({})
+            , valueStr(valueStr) {
+        }
 
         inline virtual ~Node() {};
 
         RootNode* getRoot(bool required) const;
 
         template <class T> Node* get(const T& k) const;
-        template <class T> void  set(const char* k, const T& v);
+        template <class T> void set(const char* k, const T& v);
 
         template <class T> T as(Opt<T> def = {}) const;
 
@@ -459,8 +458,8 @@ namespace syaml {
         Node* parent       = {};
         TokenizedDoc* tdoc = {};
         SourceRange tokRange;
-		std::string valueStr; // if not null: this node is from a set() call
-		bool valueStrIsString = false;
+        std::string valueStr; // if not null: this node is from a set() call
+        bool valueStrIsString = false;
 
         DictNode* asDict();
         ListNode* asList();
@@ -509,7 +508,8 @@ namespace syaml {
         using Node::Node;
 
         inline DictNode()
-            : Node("") {}
+            : Node("") {
+        }
 
         virtual ~DictNode();
 
@@ -557,31 +557,35 @@ namespace syaml {
 
             if constexpr (std::is_same<V, std::string>::value) {
                 // return tdoc->getRangeString(range);
-				if (valueStr.length()) {
-					if (valueStrIsString)
-						return valueStr.substr(1,valueStr.length()-2);
-					else
-						return valueStr;
-				}
-				else return tdoc->getTokenRangeString(tokRange, true);
+                if (valueStr.length()) {
+                    if (valueStrIsString)
+                        return valueStr.substr(1, valueStr.length() - 2);
+                    else
+                        return valueStr;
+                } else
+                    return tdoc->getTokenRangeString(tokRange, true);
             }
 
             if constexpr (std::is_same<V, bool>::value) {
-				std::string s = toScalar<std::string>();
-				if (s.length() > 0 and (s[0] == 't' or s[0] == '1' or s[0] == 'T')) return true;
-				else if (s.length() > 0 and (s[0] == 'f' or s[0] == '0' or s[0] == 'F')) return false;
-				else throw std::runtime_error(std::string{"toScalar<bool>() failed with bad value: "} + s);
-			}
+                std::string s = toScalar<std::string>();
+                if (s.length() > 0 and (s[0] == 't' or s[0] == '1' or s[0] == 'T'))
+                    return true;
+                else if (s.length() > 0 and (s[0] == 'f' or s[0] == '0' or s[0] == 'F'))
+                    return false;
+                else
+                    throw std::runtime_error(std::string { "toScalar<bool>() failed with bad value: " }
+                                             + s);
+            }
 
             if constexpr (std::is_fundamental<V>::value) {
                 V o;
-				std::stringstream ss;
-				if (valueStr.length()) {
-					ss = std::stringstream{valueStr};
-				} else {
-					ss = tdoc->getTokenRangeStream(tokRange);
-				}
-				ss >> o;
+                std::stringstream ss;
+                if (valueStr.length()) {
+                    ss = std::stringstream { valueStr };
+                } else {
+                    ss = tdoc->getTokenRangeStream(tokRange);
+                }
+                ss >> o;
                 assert(ss.eof() && "failed or partial parse");
                 // std::cout << " - parse this str :: " << ss.str() << " => " << o << "\n";
                 return o;
@@ -629,15 +633,15 @@ namespace syaml {
     // ---------------------------------------------------------------------------------------------------
 
     template <class T> inline Node* Node::get(const T& k) const {
-		auto root = getRoot(false);
-        auto g = root ? root->guard() : decltype(root->guard()){};
+        auto root = getRoot(false);
+        auto g    = root ? root->guard() : decltype(root->guard()) {};
         return this->get_(k);
     }
 
     template <class T> inline void Node::set(const char* k, const T& v) {
-		auto root = getRoot(false);
-        auto g = root ? root->guard() : decltype(root->guard()){};
-        return this->set_(k,v);
+        auto root = getRoot(false);
+        auto g    = root ? root->guard() : decltype(root->guard()) {};
+        return this->set_(k, v);
     }
 
     // template <typename std::enable_if_t<is_vector<T>::value, T> >
@@ -689,8 +693,8 @@ namespace syaml {
     }
 
     template <class T> T Node::as(Opt<T> def) const {
-		auto root = getRoot(false);
-        auto g = root ? root->guard() : decltype(root->guard()){};
+        auto root = getRoot(false);
+        auto g    = root ? root->guard() : decltype(root->guard()) {};
         if (dynamic_cast<const EmptyNode*>(this)) {
             if (def)
                 return *def;
@@ -700,61 +704,58 @@ namespace syaml {
         return as_<T>(def);
     }
 
-
     template <class T> void Node::set_(const char* k, const T& v) {
-		auto self = dynamic_cast<DictNode*>(this);
-		if (not self) {
-			throw std::runtime_error("set_ is only supported on DictNodes for now!");
-		}
+        auto self = dynamic_cast<DictNode*>(this);
+        if (not self) { throw std::runtime_error("set_ is only supported on DictNodes for now!"); }
 
-		std::string kk{k};
-		auto oldIt = std::find_if(self->children.begin(), self->children.end(),
-							[k](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k); });
-		if (oldIt != self->children.end()) delete oldIt->second;
-		if (oldIt != self->children.end()) self->children.erase(oldIt);
+        std::string kk { k };
+        auto oldIt = std::find_if(self->children.begin(), self->children.end(),
+                                  [k](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k); });
+        if (oldIt != self->children.end()) delete oldIt->second;
+        if (oldIt != self->children.end()) self->children.erase(oldIt);
 
-		if constexpr (std::is_same<T, DictNode*>::value) {
-			dynamic_cast<DictNode*>(v)->parent = this;
-			self->children.push_back({kk,v});
-			return;
-		}
+        if constexpr (std::is_same<T, DictNode*>::value) {
+            dynamic_cast<DictNode*>(v)->parent = this;
+            self->children.push_back({ kk, v });
+            return;
+        }
 
-		std::string valueStr;
-		bool valueStrIsString = false;
-		if constexpr (std::is_same<T, std::string>::value) {
-			valueStr = "\"" + v + "\"";
-			valueStrIsString = true;
-		} else {
-			std::stringstream ss;
-			ss << v;
-			valueStr = ss.str();
-		}
-		auto newNode = new ScalarNode(valueStr);
-		newNode->parent = this;
-		newNode->valueStrIsString = valueStrIsString;
+        std::string valueStr;
+        bool valueStrIsString = false;
+        if constexpr (std::is_same<T, std::string>::value) {
+            valueStr         = "\"" + v + "\"";
+            valueStrIsString = true;
+        } else {
+            std::stringstream ss;
+            ss << v;
+            valueStr = ss.str();
+        }
+        auto newNode              = new ScalarNode(valueStr);
+        newNode->parent           = this;
+        newNode->valueStrIsString = valueStrIsString;
 
-		self->children.push_back({kk,newNode});
-	}
+        self->children.push_back({ kk, newNode });
+    }
 
 #ifdef SYAML_IMPL
 
-	/*
-    void Node::set_(const char* k, DictNode* v) {
-		auto self = dynamic_cast<DictNode*>(this);
-		if (not self) {
-			throw std::runtime_error("set_ is only supported on DictNodes for now!");
-		}
+    /*
+void Node::set_(const char* k, DictNode* v) {
+            auto self = dynamic_cast<DictNode*>(this);
+            if (not self) {
+                    throw std::runtime_error("set_ is only supported on DictNodes for now!");
+            }
 
-		std::string kk{k};
-		auto oldIt = std::find_if(self->children.begin(), self->children.end(),
-							[k](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k); });
-		if (oldIt != self->children.end()) delete oldIt->second;
-		if (oldIt != self->children.end()) self->children.erase(oldIt);
+            std::string kk{k};
+            auto oldIt = std::find_if(self->children.begin(), self->children.end(),
+                                                    [k](const auto& kv) { return 0 ==
+my_strcmp(kv.first.c_str(), k); }); if (oldIt != self->children.end()) delete oldIt->second; if (oldIt !=
+self->children.end()) self->children.erase(oldIt);
 
-		dynamic_cast<DictNode*>(v)->parent = this;
-		self->children.push_back({kk,v});
-	}
-	*/
+            dynamic_cast<DictNode*>(v)->parent = this;
+            self->children.push_back({kk,v});
+    }
+    */
 
     uint32_t Document::distanceFromStartOfLine(int i) const {
         uint32_t d = 0;
@@ -797,8 +798,8 @@ namespace syaml {
 
     const std::string Document::getRangeString(SourceRange rng, bool trimQuotes) const {
         assert(rng.end >= rng.start);
-		if (trimQuotes and src[rng.start] == '"') rng.start++;
-		if (trimQuotes and src[rng.end-1] == '"') rng.end  --;
+        if (trimQuotes and src[rng.start] == '"') rng.start++;
+        if (trimQuotes and src[rng.end - 1] == '"') rng.end--;
         std::string snippet = src.substr(rng.start, rng.end - rng.start);
         return snippet;
     }
@@ -815,7 +816,6 @@ namespace syaml {
     RootNode::~RootNode() {
         delete sentinel;
     }
-
 
     Node* ScalarNode::get_(const char* k) const {
         syamlAssert(false, "ScalarNode.get(str) called.");
@@ -967,7 +967,7 @@ namespace syaml {
                 return pg.accept(), newNode;
             }
         } catch (std::runtime_error& e) {
-            syamlPrintf(" - In tryScalar(), starting here:\n");
+            std::cout << " - In tryScalar(), starting here:\n";
             print_line_debug(tdoc, pg.I0);
             pg.reject();
             throw e;
@@ -1030,7 +1030,7 @@ namespace syaml {
                 }
             }
         } catch (std::runtime_error& e) {
-            syamlPrintf(" - In tryList(), starting here:\n");
+            std::cout << " - In tryList(), starting here:\n";
             print_line_debug(tdoc, pg.I0);
             pg.reject();
             throw e;
@@ -1143,7 +1143,7 @@ namespace syaml {
                 // throw std::runtime_error("nothing parse in inner dict");
             }
         } catch (std::runtime_error& e) {
-            syamlPrintf(" - In tryListFromDash(), starting here:\n");
+            std::cout << " - In tryListFromDash(), starting here:\n";
             print_line_debug(tdoc, pg.I0);
             pg.reject();
             throw e;
@@ -1219,6 +1219,8 @@ namespace syaml {
 
                     break;
                 }
+
+                if (eof()) { break; }
 
                 Tok keyTok = advance();
                 if (keyTok != Tok::eIdent) {
@@ -1309,9 +1311,18 @@ namespace syaml {
                         Node* innerDict = tryDict();
                         if (innerDict) {
                             cs.push_back({ tdoc->getTokenString(keyTok), NodeUPtr { innerDict } });
-                        } else
-                            throw std::runtime_error("looked like a map inside a map, but failed "
-                                                     "to parse the inner one");
+                        } else {
+                            int rollback = I;
+                            while (peek() == Tok::eWhitespace) advance();
+                            if (eof()) {
+                                // ok.
+                                break;
+                            } else {
+                                I = rollback;
+                                throw std::runtime_error("looked like a map inside a map, but failed "
+                                                         "to parse the inner one");
+                            }
+                        }
                         continue;
                     }
                 }
@@ -1330,7 +1341,7 @@ namespace syaml {
                 throw std::runtime_error("nothing parse in inner dict");
             }
         } catch (std::runtime_error& e) {
-            syamlPrintf(" - In tryDict(), starting here:\n");
+            std::cout << " - In tryDict(), starting here:\n";
             print_line_debug(tdoc, pg.I0);
             pg.reject();
             throw e;
@@ -1457,11 +1468,11 @@ namespace syaml {
                     }
                 }
             } else if (auto s = dynamic_cast<ScalarNode*>(node)) {
-				if (s->valueStr.length() != 0) {
-					ss << s->valueStr;
-				} else {
-					ss << s->tdoc->getTokenRangeString(s->tokRange);
-				}
+                if (s->valueStr.length() != 0) {
+                    ss << s->valueStr;
+                } else {
+                    ss << s->tdoc->getTokenRangeString(s->tokRange);
+                }
                 lastWasDash = lastWasNl = false;
             } else if (dynamic_cast<EmptyNode*>(node)) {
                 ss << " ";
