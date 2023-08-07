@@ -453,6 +453,7 @@ namespace syaml {
             simpleAssert(false);
             return nullptr;
         }
+        // void set_(const char* k, DictNode* v); // NOTE:Takes ownership
         template <class T> void set_(const char* k, const T& v);
 
         Node* parent       = {};
@@ -694,6 +695,7 @@ namespace syaml {
         return as_<T>(def);
     }
 
+
     template <class T> void Node::set_(const char* k, const T& v) {
 		auto self = dynamic_cast<DictNode*>(this);
 		if (not self) {
@@ -705,6 +707,12 @@ namespace syaml {
 							[k](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k); });
 		if (oldIt != self->children.end()) delete oldIt->second;
 		if (oldIt != self->children.end()) self->children.erase(oldIt);
+
+		if constexpr (std::is_same<T, DictNode*>::value) {
+			dynamic_cast<DictNode*>(v)->parent = this;
+			self->children.push_back({kk,v});
+			return;
+		}
 
 		std::string valueStr;
 		bool valueStrIsString = false;
@@ -724,6 +732,24 @@ namespace syaml {
 	}
 
 #ifdef SYAML_IMPL
+
+	/*
+    void Node::set_(const char* k, DictNode* v) {
+		auto self = dynamic_cast<DictNode*>(this);
+		if (not self) {
+			throw std::runtime_error("set_ is only supported on DictNodes for now!");
+		}
+
+		std::string kk{k};
+		auto oldIt = std::find_if(self->children.begin(), self->children.end(),
+							[k](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k); });
+		if (oldIt != self->children.end()) delete oldIt->second;
+		if (oldIt != self->children.end()) self->children.erase(oldIt);
+
+		dynamic_cast<DictNode*>(v)->parent = this;
+		self->children.push_back({kk,v});
+	}
+	*/
 
     uint32_t Document::distanceFromStartOfLine(int i) const {
         uint32_t d = 0;
