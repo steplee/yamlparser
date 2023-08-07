@@ -418,7 +418,7 @@ namespace syaml {
 
         inline virtual ~Node() {};
 
-        RootNode* getRoot(bool required=true) const;
+        RootNode* getRoot(bool required) const;
 
         template <class T> Node* get(const T& k) const;
         template <class T> void  set(const char* k, const T& v);
@@ -843,7 +843,7 @@ namespace syaml {
         } else {
             syamlWarn(k >= 0 and k < children.size(), "ListNode.get(int) out-of-bounds (asked ", k,
                       " have ", children.size(), " children)");
-            return getRoot()->getEmptySentinel();
+            return getRoot(true)->getEmptySentinel();
         }
     }
 
@@ -860,7 +860,7 @@ namespace syaml {
         if (it == children.end()) {
             syamlWarn(it != children.end(), "DictNode.get(k) key not found ('", k, "' have ",
                       children.size(), " children)");
-            return getRoot()->getEmptySentinel();
+            return getRoot(true)->getEmptySentinel();
         }
         // k, children.size());
 
