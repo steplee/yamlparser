@@ -418,7 +418,7 @@ namespace syaml {
 
         inline virtual ~Node() {};
 
-        RootNode* getRoot() const;
+        RootNode* getRoot(bool required=true) const;
 
         template <class T> Node* get(const T& k) const;
         template <class T> void  set(const char* k, const T& v);
@@ -507,6 +507,10 @@ namespace syaml {
 
     public:
         using Node::Node;
+
+        inline DictNode()
+            : Node("") {}
+
         virtual ~DictNode();
 
         virtual Node* get_(const char* k) const override;
@@ -625,14 +629,14 @@ namespace syaml {
     // ---------------------------------------------------------------------------------------------------
 
     template <class T> inline Node* Node::get(const T& k) const {
-        auto root = getRoot();
-        auto g    = root->guard();
+		auto root = getRoot(false);
+        auto g = root ? root->guard() : decltype(root->guard()){};
         return this->get_(k);
     }
 
     template <class T> inline void Node::set(const char* k, const T& v) {
-        auto root = getRoot();
-        auto g    = root->guard();
+		auto root = getRoot(false);
+        auto g = root ? root->guard() : decltype(root->guard()){};
         return this->set_(k,v);
     }
 
@@ -685,7 +689,8 @@ namespace syaml {
     }
 
     template <class T> T Node::as(Opt<T> def) const {
-        auto g = getRoot()->guard();
+		auto root = getRoot(false);
+        auto g = root ? root->guard() : decltype(root->guard()){};
         if (dynamic_cast<const EmptyNode*>(this)) {
             if (def)
                 return *def;
@@ -1372,11 +1377,11 @@ namespace syaml {
         return out;
     }
 
-    RootNode* Node::getRoot() const {
+    RootNode* Node::getRoot(bool required) const {
         Node* node = const_cast<Node*>(this);
         while (node->parent) node = node->parent;
         RootNode* root = dynamic_cast<RootNode*>(node);
-        syamlAssert(root != nullptr, "getRoot() failed");
+        if (required) syamlAssert(root != nullptr, "getRoot() failed");
         return root;
     }
 

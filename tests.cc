@@ -169,6 +169,10 @@ bool test_simple() {
 		check("true works", root->get("true")->as<bool>() == true);
 		check("false works", root->get("false")->as<bool>() == false);
 
+		auto newSubNode = new DictNode();
+		newSubNode->set<int>("newKey", 2);
+		root->set<DictNode*>("newSubNode", newSubNode);
+
 		std::cout << "\n - Serialized parsed doc:\n" << serialize(root.get()) << "\n";
 
 
