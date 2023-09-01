@@ -66,8 +66,9 @@ namespace syaml {
                 a++;
                 b++;
             }
-			simpleAssert(false);
-            // return 1;
+			// simpleAssert(false);
+			// NOTE: Return *no-match* if we've reached end.
+            return 1;
         }
 
 		// Compare the beginning `len` prefix only. If `len` is -1, use the above overload.

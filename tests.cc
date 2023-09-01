@@ -99,7 +99,7 @@ bool test_simple() {
 	std::cout << "--------------------------------------------------------------------------------------------\n";
 
 	// std::string src = "empty:\na:\n   b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n   - 1\n   -         \n     - 3\n\n       - \"bye\"\n\n #comment:1";
-	std::string src = "list1: [1,2  \t  ]\ntrue: true\nfalse: 0\nempty:\na:\n   q: \"str\"\n  b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n - 1\n -\n  - 2\n  - 3\nmyThing:\n x: 1\n y: 2\n #comment";
+	std::string src = "list1: [1,2  \t  ]\ntrue: true\nfalse: 0\nempty:\na:\n   q: \"str\"\n  b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n - 1\n -\n  - 2\n  - 3\nmyThing:\n x: 1\n y: 2\n #comment\nsrc1:\n nearPlane: 9.0\nsrc:\n nearPlane: 1.0";
 	// std::string src = "a:\nb: 1.1e2\n";
 	// std::string src = "a:\nb: 1\nc: 1.1e2\n";
 	std::cout << " Doc:\n" << src << "\n\n";
@@ -173,6 +173,8 @@ bool test_simple() {
 		auto newSubNode = new DictNode();
 		newSubNode->set<int>("newKey", 2);
 		root->set<DictNode*>("newSubNode", newSubNode);
+
+		check("nearPlane",root->get("src")->get("nearPlane")->as<double>() == 1.0);
 
 		std::cout << "\n - Serialized parsed doc:\n" << serialize(root.get()) << "\n";
 
