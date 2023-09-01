@@ -9,6 +9,11 @@
 #include <unordered_map>
 #include <vector>
 
+#define simpleAssert(cond) assert((cond));
+
+// #define syamlPrintf(...) printf(__VA_ARGS__);
+#define syamlPrintf(...) {};
+
 #ifdef SYAML_IMPL
 #include <iostream>
 #endif
@@ -51,6 +56,8 @@
 namespace syaml {
 
     namespace {
+		// 1 = no-match, 0 = match.
+		// If one string ends when another continues, return no-match.
         inline int my_strcmp(const char* a, const char* b) {
             while (1) {
                 if (*a == '\0' and *b == '\0') return 0;
@@ -59,14 +66,29 @@ namespace syaml {
                 a++;
                 b++;
             }
-            return 1;
+			simpleAssert(false);
+            // return 1;
+        }
+
+		// Compare the beginning `len` prefix only. If `len` is -1, use the above overload.
+		// If one or both strings end before `len`, act like above overload.
+        inline int my_strcmp(const char* a, const char* b, int len) {
+			if (len == -1) return my_strcmp(a,b);
+
+			int i=0;
+            while (i<len) {
+                if (*a == '\0' and *b == '\0') return 0;
+                if (*a == '\0' or *b == '\0') return 1;
+                if (*a != *b) return 1;
+                a++;
+                b++;
+				i++;
+            }
+			// NOTE: Return match if we've reached the end.
+            return 0;
         }
     }
 
-#define simpleAssert(cond) assert((cond));
-
-// #define syamlPrintf(...) printf(__VA_ARGS__);
-#define syamlPrintf(...) {};
 
 #ifdef SYAML_IMPL
 
@@ -184,12 +206,15 @@ namespace syaml {
             : src(s) {
         }
 
-        const std::string getRangeString(SourceRange rng, bool trimQuotes = false) const;
-        const std::stringstream getRangeStream(const SourceRange& rng) const;
+		const std::string getRangeString(SourceRange rng, bool trimQuotes = false) const;
+		const std::stringstream getRangeStream(const SourceRange& rng) const;
         std::string findLineAround(int i, int o) const;
         std::vector<std::pair<uint32_t, std::string>> linesAround(int i, int N = 3) const;
 
-        uint32_t distanceFromStartOfLine(int i) const;
+
+
+
+        uint32_t distanceFromStartOfLine(int i) const ;
     };
 
     struct Tok {
@@ -419,7 +444,10 @@ namespace syaml {
 
         RootNode* getRoot(bool required) const;
 
-        template <class T> Node* get(const T& k) const;
+        // template <class T> Node* get(const T& k) const;
+        Node* get(const char* k, int len) const;
+        Node* get(const char* k) const;
+        Node* get(uint32_t i) const;
         template <class T> void set(const char* k, const T& v);
 
         template <class T> T as(Opt<T> def = {}) const;
@@ -444,10 +472,10 @@ namespace syaml {
         template <class T> std::enable_if_t<is_scalar<T>::value, T> as_(Opt<T> def) const;
         template <class T> std::enable_if_t<is_decodable<T>::value, T> as_(Opt<T> def) const;
 
-        inline virtual Node* get_(const char* k) const {
+        inline virtual Node* get_(const char* k, int len=-1) const {
             simpleAssert(false);
             return nullptr;
-        }
+		}
         inline virtual Node* get_(uint32_t i) const {
             simpleAssert(false);
             return nullptr;
@@ -472,7 +500,7 @@ namespace syaml {
         inline virtual ~EmptyNode() {
         }
 
-        virtual Node* get_(const char* k) const override;
+        virtual Node* get_(const char* k, int len=-1) const override;
         virtual Node* get_(uint32_t k) const override;
     };
     struct ListNode : public Node {
@@ -485,7 +513,7 @@ namespace syaml {
         using Node::Node;
         virtual ~ListNode();
 
-        virtual Node* get_(const char* k) const override;
+        virtual Node* get_(const char* k, int len=-1) const override;
         virtual Node* get_(uint32_t k) const override;
 
         template <class V> inline std::vector<V> toVector() const {
@@ -513,7 +541,7 @@ namespace syaml {
 
         virtual ~DictNode();
 
-        virtual Node* get_(const char* k) const override;
+        virtual Node* get_(const char* k, int len=-1) const override;
         virtual Node* get_(uint32_t k) const override;
 
         template <class V> inline Map<V> toMap() const {
@@ -550,7 +578,7 @@ namespace syaml {
         using Node::Node;
         virtual ~ScalarNode();
 
-        virtual Node* get_(const char* k) const override;
+        virtual Node* get_(const char* k, int len=-1) const override;
         virtual Node* get_(uint32_t k) const override;
 
         template <class V> inline V toScalar() const {
@@ -632,11 +660,26 @@ namespace syaml {
     //
     // ---------------------------------------------------------------------------------------------------
 
+	/*
     template <class T> inline Node* Node::get(const T& k) const {
         auto root = getRoot(false);
         auto g    = root ? root->guard() : decltype(root->guard()) {};
         return this->get_(k);
     }
+	*/
+	inline Node* Node::get(const char* k, int len) const {
+        auto root = getRoot(false);
+        auto g    = root ? root->guard() : decltype(root->guard()) {};
+        return this->get_(k, len);
+	}
+	inline Node* Node::get(const char* k) const {
+        return this->get(k, -1);
+	}
+	inline Node* Node::get(uint32_t i) const {
+        auto root = getRoot(false);
+        auto g    = root ? root->guard() : decltype(root->guard()) {};
+        return this->get_(i);
+	}
 
     template <class T> inline void Node::set(const char* k, const T& v) {
         auto root = getRoot(false);
@@ -817,7 +860,7 @@ self->children.end()) self->children.erase(oldIt);
         delete sentinel;
     }
 
-    Node* ScalarNode::get_(const char* k) const {
+    Node* ScalarNode::get_(const char* k, int len) const {
         syamlAssert(false, "ScalarNode.get(str) called.");
         return 0;
     }
@@ -826,14 +869,14 @@ self->children.end()) self->children.erase(oldIt);
         return 0;
     }
 
-    Node* EmptyNode::get_(const char* k) const {
+    Node* EmptyNode::get_(const char* k, int len) const {
         syamlAssert(false, "EmptyNode.get(str) called.");
     }
     Node* EmptyNode::get_(uint32_t k) const {
         syamlAssert(false, "EmptyNode.get(int)");
     }
 
-    inline Node* ListNode::get_(const char* k) const {
+    inline Node* ListNode::get_(const char* k, int len) const {
         syamlAssert(false, "ListNode.get(str) called.");
         return 0;
     }
@@ -847,13 +890,12 @@ self->children.end()) self->children.erase(oldIt);
         }
     }
 
-    inline Node* DictNode::get_(const char* k) const {
+    inline Node* DictNode::get_(const char* k, int len) const {
         decltype(children.begin()) it;
         if constexpr (is_vector<decltype(children)>::value) {
             it = std::find_if(children.begin(), children.end(),
-                              [k](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k); });
+                              [k,len](const auto& kv) { return 0 == my_strcmp(kv.first.c_str(), k, len); });
         } else {
-            // it = children.find(std::string{k});
             assert(false);
         }
 
@@ -862,10 +904,9 @@ self->children.end()) self->children.erase(oldIt);
                       children.size(), " children)");
             return getRoot(true)->getEmptySentinel();
         }
-        // k, children.size());
 
         return it->second;
-    }
+	}
     inline Node* DictNode::get_(uint32_t k) const {
         syamlAssert(false, "DictNode.get(int) called.");
         return 0;
@@ -1018,6 +1059,8 @@ self->children.end()) self->children.erase(oldIt);
                 }
 
                 cs.push_back(NodeUPtr { next });
+
+				while (peek() == Tok::eWhitespace) advance();
 
                 Tok after = peek();
                 if (after == Tok::eCloseBrace) {

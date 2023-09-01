@@ -32,7 +32,7 @@ namespace syaml {
 	template <> struct Decode<MyType> : FromKey {
 		static MyType decode(const DictNode* d) {
 			MyType out;
-			auto x = d->get_("x");
+			auto x = d->get_("xxxx",1); // note: this matches the key 'x\0' because we pass len=1
 			auto y = d->get_("y");
 			out.x = x->as_<int>(100); // Get the value in the 'x' node, or the default of 100
 			out.y = y->as_<int>(101); // Get the value in the 'x' node, or the default of 101
@@ -91,6 +91,7 @@ template <class T> std::string vec_to_string(const std::vector<T>& v) {
 	while (it != v.end()) ss << ", " << *it++;
 	return ss.str();
 }
+
 bool test_simple() {
 
 	std::cout << "--------------------------------------------------------------------------------------------\n";
@@ -98,7 +99,7 @@ bool test_simple() {
 	std::cout << "--------------------------------------------------------------------------------------------\n";
 
 	// std::string src = "empty:\na:\n   b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n   - 1\n   -         \n     - 3\n\n       - \"bye\"\n\n #comment:1";
-	std::string src = "true: true\nfalse: 0\nempty:\na:\n   q: \"str\"\n  b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n - 1\n -\n  - 2\n  - 3\nmyThing:\n x: 1\n y: 2\n #comment";
+	std::string src = "list1: [1,2  \t  ]\ntrue: true\nfalse: 0\nempty:\na:\n   q: \"str\"\n  b: 1.1e2\nc: 2\nx:\n y:\n  z: 4\n w: 5\nasd: [1,2]\nf:\n - 1\n -\n  - 2\n  - 3\nmyThing:\n x: 1\n y: 2\n #comment";
 	// std::string src = "a:\nb: 1.1e2\n";
 	// std::string src = "a:\nb: 1\nc: 1.1e2\n";
 	std::cout << " Doc:\n" << src << "\n\n";
@@ -186,6 +187,53 @@ bool test_simple() {
 	return success;
 }
 
+bool test_complex() {
+	std::cout << "--------------------------------------------------------------------------------------------\n";
+	std::cout << "--------------------------- Running complex test  -------------------------------------------\n";
+	std::cout << "--------------------------------------------------------------------------------------------\n";
+
+	// TODO: Parse like this:
+	//
+	// std::string src = "list1: [1,2,  \t {a:3} ]\n";
+	std::string src = "list1: [1,2,  \t  ]\n";
+	std::cout << " Doc:\n" << src << "\n\n";
+
+	bool success = true;
+
+	auto check = [&success](std::string msg, bool cond) {
+		if (!cond) {
+			std::cout << " - FAILED CHECK: " << msg << "\n";
+			success = false;
+		}
+	};
+
+	try {
+		Document doc(src);
+		TokenizedDoc tdoc = lex(&doc);
+		printf(" - Parsed tdoc:\n");
+		for (auto& tok : tdoc.tokens) {
+			tok.print(std::cout, *tdoc.doc);
+			std::cout << " ";
+		}
+		std::cout << "\n";
+
+		Parser p;
+		auto root = std::unique_ptr<RootNode>(p.parse(&tdoc));
+
+		auto c = root->get("c");
+		assert(c);
+
+	} catch(std::runtime_error& e) {
+		std::cout << " - ERROR " << e.what() << "\n";
+		success = false;
+	} catch(...) {
+		success = false;
+	}
+
+	return success;
+}
+
+
 int main() {
 
 	// void* a = malloc(5); // Test that address sanitizer is working.
@@ -193,6 +241,7 @@ int main() {
 
 	bool success = true;
 	success &= test_simple();
+	success &= test_complex();
 	// success &= test_python_files(".");
 
 	std::cout << "\n\n";
