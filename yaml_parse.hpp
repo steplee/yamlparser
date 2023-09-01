@@ -85,8 +85,9 @@ namespace syaml {
                 b++;
 				i++;
             }
-			// NOTE: Return match if we've reached the end.
-            return 0;
+			// NOTE: Return match if we've reached the end and the saved key is fully consumed.
+			// return 0;
+            return (*a) == '\0' ? 0 : 1;
         }
     }
 

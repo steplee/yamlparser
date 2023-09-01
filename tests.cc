@@ -174,7 +174,7 @@ bool test_simple() {
 		newSubNode->set<int>("newKey", 2);
 		root->set<DictNode*>("newSubNode", newSubNode);
 
-		check("nearPlane",root->get("src")->get("nearPlane")->as<double>() == 1.0);
+		check("nearPlane",root->get("src",3)->get("nearPlane")->as<double>() == 1.0);
 
 		std::cout << "\n - Serialized parsed doc:\n" << serialize(root.get()) << "\n";
 
