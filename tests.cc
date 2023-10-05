@@ -197,7 +197,7 @@ bool test_complex() {
 	// TODO: Parse like this:
 	//
 	// std::string src = "list1: [1,2,  \t {a:3} ]\n";
-	std::string src = "list1: [1,2,  \t  ]\n";
+	std::string src = "list_1: [1,2,  \t  ]\n";
 	std::cout << " Doc:\n" << src << "\n\n";
 
 	bool success = true;

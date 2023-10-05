@@ -72,7 +72,7 @@ namespace syaml {
         }
 
 		// Compare the beginning `len` prefix only. If `len` is -1, use the above overload.
-		// If one or both strings end before `len`, act like above overload.
+		// If there is still a match when `len` is hit, then return match only if `a` is fully consumed.
         inline int my_strcmp(const char* a, const char* b, int len) {
 			if (len == -1) return my_strcmp(a,b);
 
@@ -302,7 +302,7 @@ namespace syaml {
     };
 
     static inline bool is_alpha(char c) {
-        return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z');
+        return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
     }
     static inline bool is_numer(char c) {
         return c >= '0' and c <= '9';
