@@ -1179,7 +1179,7 @@ self->children.end()) self->children.erase(oldIt);
                 if (!next) next = tryList();
                 if (!next) next = tryListFromDash();
                 if (!next) next = tryScalar();
-                // if (!next) next = tryDict(); // WARNING: This is not supported yet.
+                if (!next) next = tryDict(); // WARNING: This may break.
 
                 if (!next) { throw std::runtime_error("inside dashList, should've parsed list or scalar"); }
 
